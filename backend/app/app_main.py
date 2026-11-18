@@ -1,4 +1,5 @@
 from router import user_rt
+from router import document_rt
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,8 @@ from utils.database import get_db
 
 app = FastAPI(title="CiteMind API")
 app.include_router(user_rt.router)
+# 注册文献管理接口，具体权限由各接口的认证依赖控制。
+app.include_router(document_rt.router)
 
 app.add_middleware(
     CORSMiddleware,
