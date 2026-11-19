@@ -10,7 +10,7 @@ from exceptions.auth import AuthError
 from service.auth import access_security, authenticate, register_user
 from utils.database import get_db
 
-router = APIRouter()
+router = APIRouter(tags=["用户管理"])
 logger = logging.getLogger(__name__)
 
 

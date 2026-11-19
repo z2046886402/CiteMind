@@ -1,6 +1,7 @@
 /**
  * 知识库页面：查询当前用户文献，并在上传成功后刷新列表。
  */
+import DocumentPreview from './components/document-preview'
 import { Alert, Button, Card, Modal, Space, Table, Upload, message } from 'antd'
 import type { TableColumnsType, UploadProps } from 'antd'
 import axios from 'axios'
@@ -11,10 +12,11 @@ import {
   uploadDocument,
 } from '../../api/repository'
 import type { DocumentItem } from '../../api/repository'
-
+import ChunkPreview from './components/chunk-preview'
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'txt']
+
 
 /** 将接口时间转换为本机时间，避免直接显示 ISO 字符串。 */
 function formatTime(value: string): string {
@@ -59,6 +61,8 @@ export default function Repository() {
   // 保存待确认的记录，确保弹窗与最终删除目标一致。
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // 分块预览目标与全文预览目标分开管理。
+  const [chunkTarget, setChunkTarget] = useState<DocumentItem | null>(null)
 
   /**
    * 加载文献列表。
@@ -86,6 +90,8 @@ export default function Repository() {
     }
   }, [])
 
+  // 保存预览目标，使用真实记录 ID 区分不同文献。
+  const [previewTarget, setPreviewTarget] = useState<DocumentItem | null>(null)
   useEffect(() => {
     const controller = new AbortController()
     void loadDocuments(controller.signal)
@@ -218,16 +224,34 @@ export default function Repository() {
           {
             title: '操作',
             key: 'actions',
-            width: 100,
+            width: 280,
             render: (_value: unknown, record: DocumentItem) => (
-              <Button
-                danger
-                type="link"
-                disabled={listLoading || uploading || deleting}
-                onClick={() => setDeleteTarget(record)}
-              >
-                删除
-              </Button>
+              <Space size="small">
+                <Button
+                  type="link"
+                  disabled={listLoading || uploading || deleting}
+                  onClick={() => setPreviewTarget(record)}
+                >
+                  解析预览
+                </Button>
+
+                <Button
+                  type="link"
+                  disabled={listLoading || uploading || deleting}
+                  onClick={() => setChunkTarget(record)}
+                >
+                  分块预览
+                </Button>
+
+                <Button
+                  danger
+                  type="link"
+                  disabled={listLoading || uploading || deleting}
+                  onClick={() => setDeleteTarget(record)}
+                >
+                  删除
+                </Button>
+              </Space>
             ),
           },
         ]}
@@ -267,6 +291,20 @@ export default function Repository() {
           确定删除“{deleteTarget?.file_name}”吗？确认后将删除文献记录和原文件。
         </p>
       </Modal>
+      {previewTarget && (
+        <DocumentPreview
+          key={previewTarget.id}
+          document={previewTarget}
+          onClose={() => setPreviewTarget(null)}
+        />
+      )}
+      {chunkTarget && (
+        <ChunkPreview
+          key={chunkTarget.id}
+          document={chunkTarget}
+          onClose={() => setChunkTarget(null)}
+        />
+      )}
     </Card>
   )
 }

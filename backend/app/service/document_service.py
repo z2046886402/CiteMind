@@ -14,6 +14,13 @@ from uuid import uuid4
 
 from exceptions.document import DocumentNotFoundError
 
+from schemas.document import DocumentParseResponse
+from service.text_parser import parse_file
+
+from schemas.document import DocumentChunkRequest, DocumentChunkResponse
+from service.text_chunker import TOKENIZER_NAME, split_text
+
+from service.search_cleanup_service import delete_document_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +181,7 @@ def list_documents(
         for record in records
     ]
 
+
 def delete_document(
     db: Session,
     user_id: int,
@@ -189,14 +197,19 @@ def delete_document(
     Returns:
         原文件清理是否完成；False 表示记录已删除，但文件清理失败。
 
-    Raises:
+        Raises:
         DocumentNotFoundError: 文献不存在或不属于当前用户。
-        OSError: 文件暂存或路径检查失败。
+        SearchIndexError: 搜索分块清理未完成。
+        ApiError: Elasticsearch API 请求失败。
+        TransportError: 搜索服务连接失败。
+        OSError: 文件暂存或清理失败。
         SQLAlchemyError: 数据库操作失败。
 
     Notes:
-        先将文件临时改名，数据库提交失败时尝试恢复。
-        此补偿流程不能保证进程崩溃或数据库提交结果不明时的原子性。
+        先暂存原文件，再清理搜索分块，最后提交数据库删除。
+        搜索清理失败时保留数据库记录，并尝试恢复原文件名。
+        搜索清理成功后若数据库提交失败，索引不会自动恢复，
+        需要重新建立索引；本流程不是跨系统原子事务。
     """
     source_path: Path | None = None
     staged_path: Path | None = None
@@ -233,6 +246,10 @@ def delete_document(
         # 临时改名保留恢复机会，避免数据库失败时原文件已经被永久删除。
         source_path.rename(staged_path)
         file_staged = True
+
+        # 当前仍持有文献行锁，索引写入流程无法同时写入该文献。
+        # 搜索分块清理失败时，外层异常处理会回滚并尝试恢复原文件名。
+        delete_document_chunks(user_id, document_id)
 
         db.delete(record)
         db.commit()
@@ -275,3 +292,110 @@ def delete_document(
         document_id,
     )
     return True
+
+
+def parse_document(
+    db: Session,
+    user_id: int,
+    document_id: int,
+) -> DocumentParseResponse:
+    """读取当前用户文献并返回文本提取结果。
+
+    Args:
+        db: 当前请求使用的数据库会话。
+        user_id: 从已验证 JWT 中取得的用户编号。
+        document_id: 数据库中的真实文献编号。
+
+    Returns:
+        文件名称、文本、字符数、PDF 页数及解析提示。
+
+    Raises:
+        DocumentNotFoundError: 文献不存在或不属于当前用户。
+        DocumentParseError: 文件内容无法解析。
+        OSError: 文件存储异常。
+        SQLAlchemyError: 数据库查询失败。
+
+    Notes:
+        解析期间持有共享行锁，阻止现有删除流程同时移动原文件。
+        锁随当前请求的数据库事务结束而释放。
+    """
+    record = (
+        db.query(KnowledgeBase)
+        .filter(
+            KnowledgeBase.id == document_id,
+            KnowledgeBase.user_id == str(user_id),
+        )
+        .with_for_update(read=True)
+        .first()
+    )
+
+    if record is None:
+        raise DocumentNotFoundError("文献不存在")
+
+    extension = Path(record.file_name).suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise ValueError("文献存储信息异常")
+
+    source_path = (
+        STORAGE_ROOT
+        / str(user_id)
+        / str(document_id)
+        / f"source{extension}"
+    )
+
+    if not source_path.resolve().is_relative_to(STORAGE_ROOT.resolve()):
+        raise ValueError("文献存储路径异常")
+
+    content, page_count, warnings = parse_file(source_path)
+
+    logger.info(
+        "文献文本提取完成，user_id=%s，document_id=%s，characters=%s",
+        user_id,
+        document_id,
+        len(content),
+    )
+
+    return DocumentParseResponse(
+        document_id=document_id,
+        file_name=record.file_name,
+        content=content,
+        character_count=len(content),
+        page_count=page_count,
+        warnings=warnings,
+    )
+
+def chunk_document(
+    db: Session,
+    user_id: int,
+    document_id: int,
+    options: DocumentChunkRequest,
+) -> DocumentChunkResponse:
+    """校验文献归属、提取文本，并生成当前请求的分块结果。
+
+    分块暂不持久化；复用解析业务的归属校验、文件定位和共享锁。
+    """
+    parsed = parse_document(db, user_id, document_id)
+
+    chunks = split_text(
+        text=parsed.content,
+        chunk_size=options.chunk_size,
+        chunk_overlap=options.chunk_overlap,
+    )
+
+    logger.info(
+        "文献分块完成，user_id=%s，document_id=%s，chunks=%s",
+        user_id,
+        document_id,
+        len(chunks),
+    )
+
+    return DocumentChunkResponse(
+        document_id=document_id,
+        file_name=parsed.file_name,
+        tokenizer=TOKENIZER_NAME,
+        chunk_size=options.chunk_size,
+        chunk_overlap=options.chunk_overlap,
+        total_chunks=len(chunks),
+        chunks=chunks,
+        warnings=parsed.warnings,
+    )

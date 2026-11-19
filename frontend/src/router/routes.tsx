@@ -4,6 +4,8 @@ import Home from '../pages/index'
 import Login from '../pages/login'
 import Repository from '../pages/repository'
 import { AuthGuard } from './guard/auth'
+import SearchPage from '../pages/search'
+import ChatPage from '../pages/chat'
 
 export const router = createBrowserRouter([
   {
@@ -25,6 +27,15 @@ export const router = createBrowserRouter([
             path: 'repository',
             element: <Repository />,
           },
+          {
+            path: 'search',
+            element: <SearchPage />,
+          },
+          {
+            path: 'chat',
+            element: <ChatPage />,
+          },
+
         ],
       },
     ],

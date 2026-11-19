@@ -72,3 +72,87 @@ export async function deleteDocument(documentId: number) {
 
   return response.data
 }
+
+/** 后端文本提取结果；page_count 仅对 PDF 有意义。 */
+export interface DocumentParseResult {
+  document_id: number
+  file_name: string
+  content: string
+  character_count: number
+  page_count: number | null
+  warnings: string[]
+}
+
+/**
+ * 请求解析一份已上传文献。
+ * @param documentId 数据库中的真实文献编号。
+ * @param signal 用于关闭预览时取消客户端等待。
+ */
+export async function parseDocument(
+  documentId: number,
+  signal?: AbortSignal,
+): Promise<DocumentParseResult> {
+  const response = await request.post<DocumentParseResult>(
+    `/documents/${documentId}/parse`,
+    undefined,
+    {
+      signal,
+      timeout: 120000,
+    },
+  )
+
+  return response.data
+}
+
+/** 生成分块时使用的参数，单位为 Token。 */
+export interface DocumentChunkOptions {
+  chunk_size: number
+  chunk_overlap: number
+}
+
+/** 单个分块及其在解析后全文中的位置。 */
+export interface DocumentChunkItem {
+  chunk_index: number
+  content: string
+  character_count: number
+  token_count: number
+  start_char: number
+  end_char: number
+  start_token: number
+  end_token: number
+}
+
+/** 后端返回的完整分块结果。 */
+export interface DocumentChunkResult {
+  document_id: number
+  file_name: string
+  tokenizer: string
+  chunk_size: number
+  chunk_overlap: number
+  total_chunks: number
+  chunks: DocumentChunkItem[]
+  warnings: string[]
+}
+
+/**
+ * 根据指定参数生成文献分块。
+ * @param documentId 数据库中的真实文献编号。
+ * @param options 分块大小和目标重叠数量。
+ * @param signal 用于关闭弹窗时取消客户端等待。
+ */
+export async function generateDocumentChunks(
+  documentId: number,
+  options: DocumentChunkOptions,
+  signal?: AbortSignal,
+): Promise<DocumentChunkResult> {
+  const response = await request.post<DocumentChunkResult>(
+    `/documents/${documentId}/chunks`,
+    options,
+    {
+      signal,
+      timeout: 120000,
+    },
+  )
+
+  return response.data
+}

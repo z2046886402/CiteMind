@@ -23,3 +23,6 @@ Thumbs.db
 __pycache__/
 # 本机上传文献属于运行数据，不提交到代码仓库。
 backend/storage/
+
+# Token 编码器等本机运行缓存。
+backend/.cache/
