@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from utils.database import get_db
 from router import chat_rt
-
+from router import session_rt
 
 app = FastAPI(title="CiteMind API")
 
@@ -22,6 +22,8 @@ app.include_router(document_rt.router)
 app.include_router(search_rt.router)
 # 注册单轮文献问答接口。
 app.include_router(chat_rt.router)
+# 注册会话管理接口，用户身份由模块内公共依赖校验。
+app.include_router(session_rt.router)
 
 app.add_middleware(
     CORSMiddleware,

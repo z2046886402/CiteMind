@@ -7,6 +7,10 @@ from models.knowledgebase import KnowledgeBase
 from models.user import User
 from utils.database import engine
 
+from models.message import Message
+from models.session import ChatSession
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +24,9 @@ def init_db() -> None:
         SQLAlchemyError: 数据库连接或建表操作失败时向上抛出。
     """
     Base.metadata.create_all(bind=engine)
-    logger.info("数据库初始化完成，已检查 users、knowledgebases 表")
+    logger.info(
+    "数据库初始化完成，已检查 users、knowledgebases、sessions、messages 表"
+)
 
 
 if __name__ == "__main__":

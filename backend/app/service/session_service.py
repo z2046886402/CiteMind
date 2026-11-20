@@ -1,0 +1,117 @@
+"""处理会话创建、分页查询和归属校验。"""
+
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from exceptions.session import SessionNotFoundError
+from models.session import ChatSession
+from schemas.session import (
+    SessionCreateResponse,
+    SessionListResponse,
+    SessionResponse,
+)
+
+
+def create_session(
+    db: Session,
+    user_id: int,
+    session_name: str,
+) -> SessionCreateResponse:
+    """创建一份属于当前用户的空会话。
+
+    Args:
+        db: 当前请求使用的数据库会话。
+        user_id: 已完成身份及账号存在性校验的用户编号。
+        session_name: 已通过请求模型校验的名称。
+
+    Returns:
+        已成功提交的会话信息。
+
+    Raises:
+        SQLAlchemyError: 数据库写入失败。
+    """
+    record = ChatSession(
+        user_id=user_id,
+        session_name=session_name,
+    )
+
+    try:
+        db.add(record)
+        db.flush()
+        db.refresh(record)
+
+        # 提交前读取响应数据，避免提交后才加载默认时间等字段。
+        response = SessionCreateResponse.model_validate(record)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+
+    return response
+
+
+def list_sessions(
+    db: Session,
+    user_id: int,
+    page: int,
+    page_size: int,
+) -> SessionListResponse:
+    """分页查询当前用户的会话，最近更新的排在前面。"""
+    query = db.query(ChatSession).filter(
+        ChatSession.user_id == user_id
+    )
+
+    total = query.count()
+
+    records = (
+        query.order_by(
+            ChatSession.updated_at.desc(),
+            ChatSession.session_id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return SessionListResponse(
+        user_id=user_id,
+        total=total,
+        page=page,
+        page_size=page_size,
+        sessions=[
+            SessionResponse.model_validate(record)
+            for record in records
+        ],
+    )
+
+
+def get_owned_session(
+    db: Session,
+    user_id: int,
+    session_id: str,
+) -> ChatSession:
+    """取得当前用户拥有的会话。
+
+    Returns:
+        当前数据库会话管理的 ORM 对象。
+
+    Raises:
+        SessionNotFoundError: 目标不存在或不属于当前用户。
+
+    Notes:
+        后续消息查询和保存操作应复用此归属条件，
+        不能仅凭客户端传入的 session_id 查询消息。
+    """
+    record = (
+        db.query(ChatSession)
+        .filter(
+            ChatSession.session_id == session_id,
+            ChatSession.user_id == user_id,
+        )
+        .first()
+    )
+
+    if record is None:
+        raise SessionNotFoundError("会话不存在")
+
+    return record
