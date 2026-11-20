@@ -44,3 +44,6 @@ class DocumentChatResponse(BaseModel):
     message_id: UUID | None = None
     message_no: int | None = None
     created_at: datetime | None = None
+    # 本次请求的调试信息，当前不持久化到消息表。
+    retrieval_question: str | None = None
+    history_turns: int | None = None

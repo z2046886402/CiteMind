@@ -12,7 +12,7 @@ from schemas.chat import DocumentChatRequest, DocumentChatResponse
 from service.chat_service import answer_document_question
 from service.session_service import get_owned_session
 from utils.database import SessionLocal
-
+from service.context_service import load_recent_history
 logger = logging.getLogger(__name__)
 
 
@@ -42,10 +42,19 @@ def answer_in_session(
         保存历史不代表模型已经使用历史作为多轮上下文。
     """
     # 先校验会话，避免为无权访问的会话产生模型调用。
+    # 在已验证归属的会话内读取历史快照，随后释放数据库会话。
     with SessionLocal() as db:
-        get_owned_session(db, user_id, session_id)
+        history = load_recent_history(
+            db,
+            user_id,
+            session_id,
+        )
 
-    result = answer_document_question(user_id, options)
+    result = answer_document_question(
+        user_id,
+        options,
+        history=history,
+    )
 
     with SessionLocal() as db:
         try:
