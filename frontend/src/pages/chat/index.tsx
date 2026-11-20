@@ -15,13 +15,18 @@ import {
   Spin,
 } from 'antd'
 import axios from 'axios'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { askDocuments } from '../../api/chat'
 import type {
   AnswerReference,
   DocumentChatResult,
 } from '../../api/chat'
 import CitedAnswer from './components/cited-answer'
+
+import type { ChatSession } from '../../api/session'
+import SessionPanel from './components/session-panel'
+import MessageHistory from './components/message-history'
+
 
 interface QuestionFormValues {
   question: string
@@ -36,6 +41,12 @@ export default function ChatPage() {
 
   const controllerRef = useRef<AbortController | null>(null)
 
+  const [activeSession, setActiveSession] = useState<ChatSession | null>(null)
+  const [workspaceBusy, setWorkspaceBusy] = useState(false)
+  const [sessionRevision, setSessionRevision] = useState(0)
+  const [historyRevision, setHistoryRevision] = useState(0)
+  const [questionForm] = Form.useForm<QuestionFormValues>()
+
   useEffect(() => {
     // 取消客户端等待，不代表服务器中的模型调用立即停止。
     return () => controllerRef.current?.abort()
@@ -43,9 +54,15 @@ export default function ChatPage() {
 
   /** 提交单轮问题，并清除上一轮回答和引用弹窗状态。 */
   async function handleAsk(values: QuestionFormValues): Promise<void> {
-    if (controllerRef.current) {
+    if (
+      !activeSession ||
+      workspaceBusy ||
+      controllerRef.current
+    ) {
       return
     }
+
+    const sessionId = activeSession.session_id
 
     const controller = new AbortController()
     controllerRef.current = controller
@@ -62,11 +79,15 @@ export default function ChatPage() {
           top_k: 5,
           min_similarity: 0.3,
         },
-        controller.signal,
+        controller.signal, sessionId,
       )
 
       if (!controller.signal.aborted) {
+        // 先展示刚返回的答案；历史加载成功后再去除重复项。
         setResult(data)
+        setHistoryRevision((value) => value + 1)
+        setSessionRevision((value) => value + 1)
+        questionForm.resetFields()
       }
     } catch (error) {
       if (controller.signal.aborted || axios.isCancel(error)) {
@@ -97,9 +118,51 @@ export default function ChatPage() {
     }
   }
 
+  /** 切换目标时清除旧回答与引用，避免跨会话显示。 */
+  function handleSelectSession(session: ChatSession): void {
+    if (controllerRef.current) {
+      return
+    }
+
+    setActiveSession(session)
+    setResult(null)
+    setError('')
+    setSelectedReference(null)
+    questionForm.resetFields()
+  }
+
+  /** 历史已展示新消息后，移除临时回答，避免重复展示。 */
+  const handleHistoryLoaded = useCallback((messageIds: string[]) => {
+    setResult((current) => {
+      if (
+        current?.message_id &&
+        messageIds.includes(current.message_id)
+      ) {
+        return null
+      }
+
+      return current
+    })
+  }, [])
+
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Card title="文献问答">
+
+      <SessionPanel
+        activeId={activeSession?.session_id}
+        disabled={loading || workspaceBusy}
+        reloadToken={sessionRevision}
+        onSelect={handleSelectSession}
+        onBusyChange={setWorkspaceBusy}
+      />
+
+      <Card
+        title={
+          activeSession
+            ? `文献问答：${activeSession.session_name}`
+            : '请先选择或新建会话'
+        }
+      >
         <Alert
           type="info"
           showIcon
@@ -108,8 +171,9 @@ export default function ChatPage() {
         />
 
         <Form<QuestionFormValues>
+          form={questionForm}
           layout="vertical"
-          disabled={loading}
+          disabled={loading || workspaceBusy || !activeSession}
           onFinish={handleAsk}
         >
           <Form.Item
@@ -223,6 +287,15 @@ export default function ChatPage() {
             />
           )}
         </>
+      )}
+
+      {activeSession && (
+        <MessageHistory
+          key={`${activeSession.session_id}:${historyRevision}`}
+          sessionId={activeSession.session_id}
+          onReadReference={setSelectedReference}
+          onLoaded={handleHistoryLoaded}
+        />
       )}
 
       <Modal

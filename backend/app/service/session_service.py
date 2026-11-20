@@ -89,27 +89,36 @@ def get_owned_session(
     db: Session,
     user_id: int,
     session_id: str,
+    *,
+    lock: bool = False,
 ) -> ChatSession:
-    """取得当前用户拥有的会话。
+    """取得当前用户拥有的会话，可选择加排他行锁。
+
+    Args:
+        db: 当前操作使用的数据库会话。
+        user_id: 已验证的用户编号。
+        session_id: 目标会话编号。
+        lock: 保存消息等需要串行执行的操作应设置为 True。
 
     Returns:
-        当前数据库会话管理的 ORM 对象。
+        当前数据库会话管理的会话对象。
 
     Raises:
-        SessionNotFoundError: 目标不存在或不属于当前用户。
+        SessionNotFoundError: 会话不存在或不属于当前用户。
 
     Notes:
-        后续消息查询和保存操作应复用此归属条件，
-        不能仅凭客户端传入的 session_id 查询消息。
+        行锁在当前数据库事务结束后释放。
+        仅查询详情时不需要加锁。
     """
-    record = (
-        db.query(ChatSession)
-        .filter(
-            ChatSession.session_id == session_id,
-            ChatSession.user_id == user_id,
-        )
-        .first()
+    query = db.query(ChatSession).filter(
+        ChatSession.session_id == session_id,
+        ChatSession.user_id == user_id,
     )
+
+    if lock:
+        query = query.with_for_update()
+
+    record = query.first()
 
     if record is None:
         raise SessionNotFoundError("会话不存在")

@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 
 from schemas.search import SemanticSearchItem, SemanticSearchRequest
 
+from datetime import datetime
+from uuid import UUID
+
 
 class DocumentChatRequest(SemanticSearchRequest):
     """复用检索参数，并限制单次回答使用的候选片段数。"""
@@ -36,3 +39,8 @@ class DocumentChatResponse(BaseModel):
     references: list[AnswerReference]
     used_citation_ids: list[int]
     warnings: list[str]
+    # 关联会话并保存成功后填写；临时单轮问答时为空。
+    session_id: str | None = None
+    message_id: UUID | None = None
+    message_no: int | None = None
+    created_at: datetime | None = None

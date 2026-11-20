@@ -30,6 +30,11 @@ from service.session_service import (
 )
 from utils.database import get_db
 
+from pydantic import ValidationError
+
+from schemas.message import MessageListResponse
+from service.message_service import list_messages
+
 router = APIRouter(tags=["会话管理"])
 logger = logging.getLogger(__name__)
 
@@ -128,4 +133,55 @@ def get_user_session(
         raise HTTPException(
             status_code=503,
             detail="会话详情暂不可用，请稍后重试",
+        ) from exc
+
+@router.get(
+    "/get_messages",
+    response_model=MessageListResponse,
+    summary="分页查询当前用户的会话消息",
+)
+def get_session_messages(
+    session_id: str = Query(
+        ...,
+        pattern=r"^[0-9a-f]{16}$",
+        description="需要查询的会话编号",
+    ),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    user_id: int = Depends(_require_user_id),
+    db: Session = Depends(get_db),
+) -> MessageListResponse:
+    """读取已保存的历史问答，不触发模型调用。"""
+    try:
+        return list_messages(
+            db=db,
+            user_id=user_id,
+            session_id=session_id,
+            page=page,
+            page_size=page_size,
+        )
+    except SessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="会话不存在",
+        ) from exc
+    except ValidationError as exc:
+        logger.exception(
+            "历史消息结构异常，user_id=%s，session_id=%s",
+            user_id,
+            session_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="历史消息格式异常，请检查后端日志",
+        ) from exc
+    except SQLAlchemyError as exc:
+        logger.exception(
+            "历史消息查询失败，user_id=%s，session_id=%s",
+            user_id,
+            session_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="历史消息暂不可用，请稍后重试",
         ) from exc

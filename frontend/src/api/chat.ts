@@ -19,23 +19,29 @@ export interface DocumentChatResult {
   references: AnswerReference[]
   used_citation_ids: number[]
   warnings: string[]
+  session_id: string | null
+  message_id: string | null
+  message_no: number | null
+  created_at: string | null
 }
 
 /**
- * 根据当前用户的文献生成单轮回答。
+ * 生成文献回答；指定会话时由后端保存问答。
  * @param params 问题及检索参数。
- * @param signal 用于离开页面时取消客户端等待。
+ * @param signal 取消客户端等待的信号。
+ * @param sessionId 需要保存问答的会话编号。
  */
 export async function askDocuments(
   params: SemanticSearchParams,
   signal?: AbortSignal,
+  sessionId?: string,
 ): Promise<DocumentChatResult> {
   const response = await request.post<DocumentChatResult>(
     '/chat_on_docs',
     params,
     {
+      params: sessionId ? { session_id: sessionId } : undefined,
       signal,
-      // 非流式请求包含检索和回答模型调用，单独设置等待时间。
       timeout: 240000,
     },
   )
