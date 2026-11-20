@@ -4,6 +4,8 @@ import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { createSession, listSessions } from '../../../api/session'
 import type { ChatSession } from '../../../api/session'
+import SessionActions from './session-actions'
+
 
 interface SessionPanelProps {
   activeId?: string
@@ -11,6 +13,8 @@ interface SessionPanelProps {
   reloadToken: number
   onSelect: (session: ChatSession) => void
   onBusyChange: (busy: boolean) => void
+  onRenamed: (session: ChatSession) => void
+  onDeleted: (sessionId: string) => void
 }
 
 export default function SessionPanel({
@@ -19,6 +23,8 @@ export default function SessionPanel({
   reloadToken,
   onSelect,
   onBusyChange,
+  onRenamed,
+  onDeleted,
 }: SessionPanelProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [page, setPage] = useState(1)
@@ -133,16 +139,41 @@ export default function SessionPanel({
         {error && <Alert type="error" showIcon message={error} />}
 
         {sessions.map((session) => (
-          <Button
+          <div
             key={session.session_id}
-            block
-            type={activeId === session.session_id ? 'primary' : 'default'}
-            disabled={disabled}
-            onClick={() => onSelect(session)}
-            style={{ height: 'auto', whiteSpace: 'normal' }}
+            style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}
           >
-            {session.session_name}
-          </Button>
+            <Button
+              type={activeId === session.session_id ? 'primary' : 'default'}
+              disabled={disabled}
+              onClick={() => onSelect(session)}
+              style={{
+                flex: 1,
+                minWidth: 160,
+                height: 'auto',
+                whiteSpace: 'normal',
+              }}
+            >
+              {session.session_name}
+            </Button>
+
+            <SessionActions
+              session={session}
+              disabled={disabled}
+              onBusyChange={onBusyChange}
+              onRenamed={(updated) => {
+                setPage(1)
+                setRefreshToken((value) => value + 1)
+                onRenamed(updated)
+              }}
+              onDeleted={(sessionId) => {
+                // 删除当前页最后一项时也回到第一页，避免停留在空页。
+                setPage(1)
+                setRefreshToken((value) => value + 1)
+                onDeleted(sessionId)
+              }}
+            />
+          </div>
         ))}
 
         {!error && sessions.length === 0 && (

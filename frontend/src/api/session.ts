@@ -79,3 +79,37 @@ export async function getMessages(
   })
   return response.data
 }
+
+/** 会话及消息的删除结果。 */
+export interface SessionDeleteResult {
+  status: 'success'
+  message: string
+  session_id: string
+  deleted_messages: number
+}
+
+/** 重命名当前用户拥有的会话。 */
+export async function renameSession(
+  sessionId: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<ChatSession> {
+  const response = await request.patch<ChatSession>(
+    `/sessions/${encodeURIComponent(sessionId)}`,
+    { session_name: name },
+    { signal },
+  )
+  return response.data
+}
+
+/** 删除会话及其所属消息，调用前由页面明确确认。 */
+export async function deleteSession(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SessionDeleteResult> {
+  const response = await request.delete<SessionDeleteResult>(
+    `/sessions/${encodeURIComponent(sessionId)}`,
+    { signal },
+  )
+  return response.data
+}

@@ -11,6 +11,11 @@ from schemas.session import (
     SessionResponse,
 )
 
+from datetime import datetime, timezone
+
+from models.message import Message
+from schemas.session import SessionDeleteResponse
+
 
 def create_session(
     db: Session,
@@ -124,3 +129,86 @@ def get_owned_session(
         raise SessionNotFoundError("会话不存在")
 
     return record
+
+
+def rename_session(
+    db: Session,
+    user_id: int,
+    session_id: str,
+    session_name: str,
+) -> SessionResponse:
+    """重命名当前用户的会话，并更新最近修改时间。
+
+    与消息保存共用会话行锁，避免并发修改时互相覆盖。
+    """
+    try:
+        record = get_owned_session(
+            db,
+            user_id,
+            session_id,
+            lock=True,
+        )
+
+        record.session_name = session_name
+        record.updated_at = datetime.now(timezone.utc)
+
+        db.flush()
+        db.refresh(record)
+
+        response = SessionResponse.model_validate(record)
+        db.commit()
+        return response
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+
+
+def delete_session(
+    db: Session,
+    user_id: int,
+    session_id: str,
+) -> SessionDeleteResponse:
+    """删除当前用户会话，并由数据库级联删除所属消息。
+
+    Args:
+        db: 当前请求使用的数据库会话。
+        user_id: 已验证的用户编号。
+        session_id: 需要校验归属的会话编号。
+
+    Returns:
+        已提交的删除结果及删除前的消息数量。
+
+    Raises:
+        SessionNotFoundError: 会话不存在或不属于当前用户。
+        SQLAlchemyError: 数据库删除或提交失败。
+
+    Notes:
+        会话行锁与消息保存流程协调，防止删除期间继续追加消息。
+        数据库提交后无法通过事务回滚恢复历史。
+    """
+    try:
+        record = get_owned_session(
+            db,
+            user_id,
+            session_id,
+            lock=True,
+        )
+
+        message_count = (
+            db.query(Message)
+            .filter(Message.session_id == session_id)
+            .count()
+        )
+
+        response = SessionDeleteResponse(
+            session_id=session_id,
+            deleted_messages=message_count,
+        )
+
+        # messages.session_id 的 ON DELETE CASCADE 在同一事务内生效。
+        db.delete(record)
+        db.commit()
+        return response
+    except SQLAlchemyError:
+        db.rollback()
+        raise

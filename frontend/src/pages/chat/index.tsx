@@ -145,6 +145,27 @@ export default function ChatPage() {
     })
   }, [])
 
+
+  /** 更新当前会话标题，不清空用户正在编辑的问题。 */
+  function handleSessionRenamed(session: ChatSession): void {
+    setActiveSession((current) =>
+      current?.session_id === session.session_id ? session : current,
+    )
+  }
+
+  /** 当前会话删除后，清除其回答、引用和输入状态。 */
+  function handleSessionDeleted(sessionId: string): void {
+    if (activeSession?.session_id !== sessionId) {
+      return
+    }
+
+    setActiveSession(null)
+    setResult(null)
+    setError('')
+    setSelectedReference(null)
+    questionForm.resetFields()
+  }
+
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
 
@@ -154,6 +175,8 @@ export default function ChatPage() {
         reloadToken={sessionRevision}
         onSelect={handleSelectSession}
         onBusyChange={setWorkspaceBusy}
+        onRenamed={handleSessionRenamed}
+        onDeleted={handleSessionDeleted}
       />
 
       <Card

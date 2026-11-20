@@ -54,3 +54,21 @@ class SessionListResponse(BaseModel):
     page: int
     page_size: int
     sessions: list[SessionResponse]
+
+class SessionRenameRequest(SessionCreateRequest):
+    """复用名称校验，但重命名时必须明确提交名称。"""
+
+    session_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+    )
+
+
+class SessionDeleteResponse(BaseModel):
+    """描述已提交的会话删除结果。"""
+
+    status: Literal["success"] = "success"
+    message: str = "会话及所属消息已删除"
+    session_id: str
+    deleted_messages: int

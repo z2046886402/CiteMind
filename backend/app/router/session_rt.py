@@ -35,6 +35,9 @@ from pydantic import ValidationError
 from schemas.message import MessageListResponse
 from service.message_service import list_messages
 
+from schemas.session import SessionDeleteResponse, SessionRenameRequest
+from service.session_service import delete_session, rename_session
+
 router = APIRouter(tags=["会话管理"])
 logger = logging.getLogger(__name__)
 
@@ -184,4 +187,55 @@ def get_session_messages(
         raise HTTPException(
             status_code=503,
             detail="历史消息暂不可用，请稍后重试",
+        ) from exc
+
+@router.patch(
+    "/sessions/{session_id}",
+    response_model=SessionResponse,
+    summary="重命名当前用户的会话",
+)
+def rename_user_session(
+    options: SessionRenameRequest,
+    session_id: str = Path(..., pattern=r"^[0-9a-f]{16}$"),
+    user_id: int = Depends(_require_user_id),
+    db: Session = Depends(get_db),
+) -> SessionResponse:
+    """验证归属后更新会话名称。"""
+    try:
+        return rename_session(
+            db,
+            user_id,
+            session_id,
+            options.session_name,
+        )
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="会话不存在") from exc
+    except SQLAlchemyError as exc:
+        logger.exception("会话重命名失败，user_id=%s", user_id)
+        raise HTTPException(
+            status_code=503,
+            detail="重命名结果未确认，请刷新会话列表核对",
+        ) from exc
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=SessionDeleteResponse,
+    summary="删除当前用户的会话及消息",
+)
+def delete_user_session(
+    session_id: str = Path(..., pattern=r"^[0-9a-f]{16}$"),
+    user_id: int = Depends(_require_user_id),
+    db: Session = Depends(get_db),
+) -> SessionDeleteResponse:
+    """验证归属后永久删除会话及所属历史。"""
+    try:
+        return delete_session(db, user_id, session_id)
+    except SessionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="会话不存在") from exc
+    except SQLAlchemyError as exc:
+        logger.exception("会话删除失败，user_id=%s", user_id)
+        raise HTTPException(
+            status_code=503,
+            detail="删除结果未确认，请刷新会话列表核对",
         ) from exc
