@@ -50,12 +50,37 @@ def answer_in_session(
             session_id,
         )
 
-    result = answer_document_question(
-        user_id,
-        options,
-        history=history,
-    )
+        result = answer_document_question(
+            user_id,
+            options,
+            history=history,
+        )
 
+    return save_session_answer(user_id, session_id, result)
+
+
+def save_session_answer(
+    user_id: int,
+    session_id: str,
+    result: DocumentChatResponse,
+) -> DocumentChatResponse:
+    """保存已经完成生成及校验的回答。
+
+    保存前重新校验会话归属，并通过会话行锁分配消息序号。
+    消息新增与会话更新时间在同一事务中提交。
+
+    Args:
+        user_id: 已验证的用户编号。
+        session_id: 目标会话编号。
+        result: 已完成引用校验的完整问答结果。
+
+    Returns:
+        包含消息编号和保存时间的结果。
+
+    Raises:
+        SessionNotFoundError: 会话已删除或不属于当前用户。
+        MessagePersistenceError: 数据库提交结果未确认。
+    """
     with SessionLocal() as db:
         try:
             # 会话可能在模型调用期间发生变化，保存前重新校验。

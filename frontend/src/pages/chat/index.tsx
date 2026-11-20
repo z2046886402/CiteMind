@@ -1,8 +1,8 @@
 /**
- * 单轮文献问答页面。
+ * 文献会话问答页面。
  *
- * 提交问题、展示回答和引用，使用弹窗核对原文。
- * 当前不保存历史记录，不将前一次回答作为下一次提问的上下文。
+ * 接收流式回答并展示临时文本；收到保存成功事件后，
+ * 使用完整结果展示引用，并刷新会话列表和消息历史。
  */
 import {
   Alert,
@@ -14,9 +14,9 @@ import {
   Space,
   Spin,
 } from 'antd'
-import axios from 'axios'
+
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { askDocuments } from '../../api/chat'
+import { askDocumentsStream } from '../../api/chat-stream'
 import type {
   AnswerReference,
   DocumentChatResult,
@@ -34,6 +34,11 @@ interface QuestionFormValues {
 
 export default function ChatPage() {
   const [loading, setLoading] = useState(false)
+  /** 正在接收的临时正文，尚未完成引用检查和保存确认。 */
+  const [streamText, setStreamText] = useState('')
+
+  /** 后端当前处理阶段，例如检索、生成和保存。 */
+  const [streamStatus, setStreamStatus] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState<DocumentChatResult | null>(null)
   const [selectedReference, setSelectedReference] =
@@ -53,7 +58,15 @@ export default function ChatPage() {
   }, [])
 
   /** 提交单轮问题，并清除上一轮回答和引用弹窗状态。 */
-  async function handleAsk(values: QuestionFormValues): Promise<void> {
+  /**
+ * 提交当前会话的问题，接收临时片段并等待正式结果。
+ *
+ * 只有收到 done 才确认成功；失败时清除临时正文，
+ * 并刷新历史记录，以核对后端是否已经保存消息。
+ */
+  async function handleAsk(
+    values: QuestionFormValues,
+  ): Promise<void> {
     if (
       !activeSession ||
       workspaceBusy ||
@@ -63,50 +76,74 @@ export default function ChatPage() {
     }
 
     const sessionId = activeSession.session_id
-
     const controller = new AbortController()
+
     controllerRef.current = controller
 
     setLoading(true)
     setError('')
     setResult(null)
     setSelectedReference(null)
+    setStreamText('')
+    setStreamStatus('正在连接问答服务')
 
     try {
-      const data = await askDocuments(
+      const data = await askDocumentsStream(
         {
           question: values.question.trim(),
           top_k: 5,
           min_similarity: 0.3,
         },
-        controller.signal, sessionId,
+        sessionId,
+        {
+          onStatus(message) {
+            if (!controller.signal.aborted) {
+              setStreamStatus(message)
+            }
+          },
+          onDelta(content) {
+            if (!controller.signal.aborted) {
+              // 使用函数式更新，避免连续片段覆盖尚未渲染的内容。
+              setStreamText((current) => current + content)
+            }
+          },
+        },
+        controller.signal,
       )
 
-      if (!controller.signal.aborted) {
-        // 先展示刚返回的答案；历史加载成功后再去除重复项。
-        setResult(data)
-        setHistoryRevision((value) => value + 1)
-        setSessionRevision((value) => value + 1)
-        questionForm.resetFields()
-      }
-    } catch (error) {
-      if (controller.signal.aborted || axios.isCancel(error)) {
+      if (controller.signal.aborted) {
         return
       }
 
-      let description = '问答失败，请稍后重试'
+      // 完整结果具有最终正文、引用和消息编号，替换临时内容。
+      setStreamText('')
+      setStreamStatus('')
+      setResult(data)
 
-      if (axios.isAxiosError<{ detail?: unknown }>(error)) {
-        const detail = error.response?.data?.detail
-
-        if (typeof detail === 'string') {
-          description = detail
-        } else if (error.code === 'ECONNABORTED') {
-          description = '回答等待超时，请稍后重试'
-        }
+      setHistoryRevision((value) => value + 1)
+      setSessionRevision((value) => value + 1)
+      questionForm.resetFields()
+    } catch (error: unknown) {
+      if (controller.signal.aborted) {
+        return
       }
 
-      setError(description)
+      const description =
+        error instanceof Error
+          ? error.message
+          : '流式问答处理失败'
+
+      setError(
+        `${description}。请先核对会话历史，再决定是否重试。`,
+      )
+
+      // 未确认成功的文本不能继续作为正式回答展示。
+      setStreamText('')
+      setStreamStatus('')
+
+      // 后端可能已提交消息，但完成通知未能到达浏览器。
+      setHistoryRevision((value) => value + 1)
+      setSessionRevision((value) => value + 1)
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false)
@@ -126,6 +163,8 @@ export default function ChatPage() {
 
     setActiveSession(session)
     setResult(null)
+    setStreamText('')
+    setStreamStatus('')
     setError('')
     setSelectedReference(null)
     questionForm.resetFields()
@@ -161,6 +200,8 @@ export default function ChatPage() {
 
     setActiveSession(null)
     setResult(null)
+    setStreamText('')
+    setStreamStatus('')
     setError('')
     setSelectedReference(null)
     questionForm.resetFields()
@@ -235,11 +276,34 @@ export default function ChatPage() {
       </Card>
 
       {loading && (
-        <Card>
-          <div style={{ padding: 24, textAlign: 'center' }}>
-            <Spin />
-            <p>正在检索文献并生成回答，请稍候……</p>
-          </div>
+        <Card title="正在生成回答">
+          <Space>
+            <Spin size="small" />
+            <span>{streamStatus || '正在处理，请稍候'}</span>
+          </Space>
+
+          {streamText && (
+            <div
+              style={{
+                marginTop: 20,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                lineHeight: 1.8,
+              }}
+            >
+              {streamText}
+            </div>
+          )}
+
+          <p
+            style={{
+              marginBottom: 0,
+              marginTop: 16,
+              color: '#888',
+            }}
+          >
+            回答完成后可点击引用编号核对原文。
+          </p>
         </Card>
       )}
 
