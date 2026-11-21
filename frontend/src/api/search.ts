@@ -1,6 +1,7 @@
 /**
- * 封装文献语义检索接口。
+ * 封装文献混合检索接口。
  *
+ * 使用正文关键词和向量共同检索。
  * 身份令牌由共享 Axios 实例自动携带。
  */
 import { request } from './request'
@@ -20,7 +21,10 @@ export interface SemanticSearchItem {
   content: string
   start_char: number
   end_char: number
+  /** 关键词与向量融合后的排序分数，不表示概率或正确率。 */
   score: number
+
+  /** 单独计算的余弦相似度，与混合排序分数含义不同。 */
   cosine_similarity: number
 }
 
@@ -34,16 +38,18 @@ export interface SemanticSearchResult {
 }
 
 /**
- * 检索当前用户已建立索引的文献。
- * @param params 问题、结果数量及相似度要求。
- * @param signal 用于离开页面时取消客户端等待。
+ * 混合检索当前用户已建立索引的文献。
+ *
+ * @param params 问题、最多返回条数和最终结果的最低余弦相似度。
+ * @param signal 取消客户端等待的信号。
+ * @returns 按混合分数降序排列的相关片段。
  */
 export async function searchDocuments(
   params: SemanticSearchParams,
   signal?: AbortSignal,
 ): Promise<SemanticSearchResult> {
   const response = await request.post<SemanticSearchResult>(
-    '/search/semantic',
+    '/search/hybrid',
     params,
     {
       signal,

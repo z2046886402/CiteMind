@@ -1,4 +1,4 @@
-"""组织文献检索、参考资料和非流式回答生成。"""
+"""组织文献混合检索、参考资料和非流式回答生成。"""
 
 import json
 import logging
@@ -16,7 +16,7 @@ from schemas.chat import (
     DocumentChatResponse,
 )
 from schemas.search import SemanticSearchItem
-from service.retrieval_service import semantic_search
+from service.hybrid_retrieval_service import hybrid_search
 
 from typing import Any
 
@@ -258,7 +258,7 @@ def answer_document_question(
 
     Notes:
         引用检查只验证编号有效性，不验证引用与陈述之间的语义支持。
-        当前不保存聊天记录，不提供多轮历史。
+        历史上下文由调用方提供；本函数负责生成结果，会话保存由上层服务完成。
     """
     history = history or []
     retrieval_question = options.question
@@ -287,7 +287,8 @@ def answer_document_question(
         min_similarity=options.min_similarity,
     )
 
-    retrieval = semantic_search(user_id, retrieval_options)
+    # 先融合关键词和向量结果，再沿用现有资料截断及引用编号规则。
+    retrieval = hybrid_search(user_id, retrieval_options)
     references = _build_references(retrieval.items)
 
     context_metadata = {

@@ -1,7 +1,8 @@
 /**
- * 文献语义检索页面。
+ * 文献混合检索页面。
  *
- * 收集检索参数，展示后端返回的相关片段。
+ * 收集检索参数，展示关键词与向量融合后的相关片段。
+ * 混合分数用于排序，余弦相似度单独展示。
  * 结果内容按普通文本渲染，不执行文献中的 HTML。
  */
 import {
@@ -94,11 +95,11 @@ export default function SearchPage() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Card title="文献检索">
+      <Card title="文献混合检索">
         <Alert
           type="info"
           showIcon
-          message="仅检索当前账号已建立索引的文献；相似度不代表内容正确率。"
+          message="使用关键词与向量共同检索当前账号的文献；排序分数和相似度均不代表内容正确率。"
           style={{ marginBottom: 20 }}
         />
 
@@ -154,6 +155,7 @@ export default function SearchPage() {
             <Form.Item
               label="最低余弦相似度"
               name="min_similarity"
+              extra="最终片段均需满足此阈值；阈值越高，返回结果可能越少。"
               rules={[
                 {
                   required: true,
@@ -223,7 +225,7 @@ export default function SearchPage() {
                 <Tag color="blue">
                   余弦相似度：{item.cosine_similarity.toFixed(4)}
                 </Tag>
-                <span>检索分数：{item.score.toFixed(4)}</span>
+                <span>混合排序分数：{item.score.toFixed(4)}</span>
                 <span>文献 ID：{item.document_id}</span>
               </Space>
 

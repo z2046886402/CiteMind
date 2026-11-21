@@ -17,7 +17,7 @@ from service.chat_service import (
     _rewrite_question,
 )
 from service.chat_stream_service import stream_chat_model
-from service.retrieval_service import semantic_search
+from service.hybrid_retrieval_service import hybrid_search
 from service.session_chat_service import save_session_answer
 
 # 事件名称与事件数据组成一个元组，由路由层转换为 SSE 文本。
@@ -56,7 +56,8 @@ def _generate_document_answer(
 
         retrieval_question = rewritten.question
 
-    retrieval = semantic_search(
+    # 与搜索页面及非流式问答使用相同的混合检索服务。
+    retrieval = hybrid_search(
         user_id,
         SemanticSearchRequest(
             question=retrieval_question,

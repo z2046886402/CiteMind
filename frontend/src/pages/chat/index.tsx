@@ -271,7 +271,7 @@ export default function ChatPage() {
           <Alert
             type="info"
             showIcon
-            message="基于当前账号已建立索引的文献回答，点击引用编号可核对原文。"
+            message="通过关键词与向量共同检索当前账号的文献，再生成回答；点击引用编号可核对原文。"
             style={{ marginBottom: 20 }}
           />
 
