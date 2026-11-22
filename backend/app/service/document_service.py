@@ -389,10 +389,19 @@ def chunk_document(
     """
     parsed = parse_document(db, user_id, document_id)
 
+    # 解析器已经提供表格在全文中的位置，直接传给分块器，
+    # 不通过搜索表格字符串推算位置，避免相同文字造成误匹配。
+    table_ranges = [
+        (block.start_char, block.end_char)
+        for block in parsed.blocks
+        if block.kind == "table"
+    ]
+
     chunks = split_text(
         text=parsed.content,
         chunk_size=options.chunk_size,
         chunk_overlap=options.chunk_overlap,
+        table_ranges=table_ranges,
     )
 
     logger.info(
