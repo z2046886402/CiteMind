@@ -10,6 +10,9 @@ from docx.text.paragraph import Paragraph
 
 from exceptions.document import DocumentParseError
 
+from schemas.parsed_document import ParsedBlock, ParsedDocument
+from service.pdf_text_parser import parse_pdf_text
+
 logger = logging.getLogger(__name__)
 
 # 同步解析阶段的业务限制；后续长文献处理应迁移到后台任务。
@@ -39,37 +42,14 @@ def _append_text(
 
 
 def _parse_pdf(path: Path) -> tuple[str, int, list[str]]:
-    """逐页提取 PDF 文字层，不执行 OCR 或复杂表格重建。"""
-    parts: list[str] = []
-    character_count = 0
-    empty_pages = 0
+    """保留原有文本接口，内部复用统一的 PDF 文字层适配器。"""
+    result = parse_pdf_text(
+        path,
+        max_pages=MAX_PDF_PAGES,
+        max_characters=MAX_TEXT_CHARACTERS,
+    )
 
-    with pdfplumber.open(path) as document:
-        page_count = len(document.pages)
-
-        if page_count > MAX_PDF_PAGES:
-            raise DocumentParseError("当前同步解析最多支持 100 页 PDF")
-
-        for page in document.pages:
-            text = page.extract_text() or ""
-
-            if not text.strip():
-                empty_pages += 1
-
-            character_count = _append_text(
-                parts,
-                text,
-                character_count,
-            )
-            page.close()
-
-    warnings = []
-    if empty_pages:
-        warnings.append(
-            f"有 {empty_pages} 页未提取到文字，可能为空白页或需要 OCR"
-        )
-
-    return "\n\n".join(parts), page_count, warnings
+    return result.content, len(result.pages), result.warnings
 
 
 def _parse_docx(path: Path) -> str:
@@ -173,3 +153,73 @@ def parse_file(path: Path) -> tuple[str, int | None, list[str]]:
         raise DocumentParseError("提取文本超过当前 50 万字符的处理限制")
 
     return content, page_count, warnings
+
+def parse_file_structured(path: Path) -> ParsedDocument:
+    """根据文件格式返回统一解析结果。
+
+    Args:
+        path: 经过业务层归属和存储路径校验的文件。
+
+    Returns:
+        PDF 返回真实页面与候选文本块。
+        DOCX、TXT 暂时将既有全文包装为一个正文块，页码未知。
+
+    Raises:
+        DocumentParseError: 文件无法解析、没有文字或超过业务限制。
+        OSError: 文件读取失败。
+    """
+    extension = path.suffix.lower()
+
+    if extension != ".pdf":
+        # 沿用已有格式校验、编码处理和字符数限制。
+        content, page_count, warnings = parse_file(path)
+
+        return ParsedDocument(
+            format="docx" if extension == ".docx" else "txt",
+            parser_name=(
+                "python_docx_text_v1"
+                if extension == ".docx"
+                else "text_decode_v1"
+            ),
+            content=content,
+            page_count=page_count,
+            blocks=[
+                ParsedBlock(
+                    block_index=1,
+                    kind="paragraph",
+                    text=content,
+                    start_char=0,
+                    end_char=len(content),
+                )
+            ],
+            warnings=warnings,
+        )
+
+    if path.stat().st_size > MAX_SOURCE_BYTES:
+        raise DocumentParseError(
+            "原文件超过当前 20 MiB 的处理限制"
+        )
+
+    try:
+        result = parse_pdf_text(
+            path,
+            max_pages=MAX_PDF_PAGES,
+            max_characters=MAX_TEXT_CHARACTERS,
+        )
+    except (DocumentParseError, OSError):
+        raise
+    except Exception as exc:
+        logger.error(
+            "结构化 PDF 解析失败，error_type=%s",
+            type(exc).__name__,
+        )
+        raise DocumentParseError(
+            "PDF 无法解析，请检查是否损坏或加密"
+        ) from exc
+
+    if not result.content.strip():
+        raise DocumentParseError(
+            "未提取到有效文字；扫描文档需要后续接入 OCR"
+        )
+
+    return result

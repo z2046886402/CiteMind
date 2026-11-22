@@ -1,29 +1,19 @@
 """通过词项覆盖率和已有余弦相似度，对候选片段进行本地重排。"""
 
 import math
-import re
+from service.text_tokenizer_service import extract_terms
 
 from schemas.search import SemanticSearchItem
 
+from service.term_weight_service import build_query_weights
 
 KEYWORD_WEIGHT = 0.3
 VECTOR_WEIGHT = 0.7
 
-# 英文按单词及常见技术标识匹配，中文按单字匹配。
-# 这是当前项目的基础适配，不等同于原项目的专业分词器。
-TERM_PATTERN = re.compile(
-    r"[a-z0-9]+(?:[-_.][a-z0-9]+)*|[\u3400-\u9fff]",
-    re.IGNORECASE,
-)
-
 
 def _extract_terms(text: str) -> set[str]:
-    """提取不区分大小写的去重词项。
-
-    使用集合避免同一词项重复出现时，人为提高覆盖率。
-    标点和空白不参与匹配。
-    """
-    return set(TERM_PATTERN.findall(text.casefold()))
+    """复用统一词语分词服务，保持问题与候选片段的处理一致。"""
+    return extract_terms(text)
 
 
 def rerank_by_rule(
@@ -44,8 +34,9 @@ def rerank_by_rule(
         ValueError: 问题为空，或候选的余弦相似度无效。
 
     Notes:
-        词项覆盖率 = 候选命中的问题词项数 / 问题词项总数。
-        重排分数 = 0.3 × 覆盖率 + 0.7 × 原始余弦相似度。
+        加权覆盖率 = 候选命中的查询词项权重之和。
+        查询词项权重已经归一化，未配置词项原始权重为 1。
+        重排分数 = 0.3 × 加权覆盖率 + 0.7 × 原始余弦相似度。
         问题没有可提取词项时，覆盖率记为 0。
         不修改输入列表、片段正文、原文位置和原始召回分数。
         本函数不访问数据库、Elasticsearch 或外部模型。
@@ -54,6 +45,9 @@ def rerank_by_rule(
         raise ValueError("重排问题不能为空")
 
     query_terms = _extract_terms(question)
+
+    # 同一问题的权重只计算一次，所有候选使用相同的评分基准。
+    query_weights = build_query_weights(query_terms)
 
     scored_items: list[tuple[float, SemanticSearchItem]] = []
 
@@ -65,10 +59,15 @@ def rerank_by_rule(
 
         document_terms = _extract_terms(item.content)
 
-        coverage = (
-            len(query_terms & document_terms) / len(query_terms)
-            if query_terms
-            else 0.0
+        # 权重已经归一化，直接累加候选命中的查询词项权重。
+        # 空查询词项自然得到 0；上界处理避免浮点误差略微超过 1。
+        coverage = min(
+            1.0,
+            math.fsum(
+                weight
+                for term, weight in query_weights.items()
+                if term in document_terms
+            ),
         )
 
         rerank_score = (

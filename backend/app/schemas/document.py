@@ -7,6 +7,8 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
+from schemas.parsed_document import ParsedBlock, ParsedPage
+
 # 与文献模型中的数据库状态约束保持一致。
 DocumentIndexStatus = Literal[
     "unknown",
@@ -66,6 +68,10 @@ class DocumentParseResponse(BaseModel):
     character_count: int
     page_count: int | None = None
     warnings: list[str]
+    # 保留全文字段供现有预览、分块和问答使用，同时返回结构信息。
+    parser_name: str | None = None
+    pages: list[ParsedPage] = Field(default_factory=list)
+    blocks: list[ParsedBlock] = Field(default_factory=list)
 
 
 class DocumentChunkRequest(BaseModel):

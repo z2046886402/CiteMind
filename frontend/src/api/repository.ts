@@ -92,6 +92,43 @@ export async function deleteDocument(documentId: number) {
 }
 
 /** 后端文本提取结果；page_count 仅对 PDF 有意义。 */
+/** PDF 页面尺寸，单位为 PDF point。 */
+export interface ParsedPage {
+  page_number: number
+  width: number
+  height: number
+}
+
+/** 页面左上角为原点的区域坐标。 */
+export interface BlockBoundingBox {
+  x0: number
+  top: number
+  x1: number
+  bottom: number
+}
+
+/** 文本块的页面位置；没有可靠坐标时 bbox 为 null。 */
+export interface BlockPosition {
+  page_number: number
+  bbox: BlockBoundingBox | null
+}
+
+/** 解析阶段的文本块，与后续 Token 分块属于不同层次。 */
+export interface ParsedBlock {
+  block_index: number
+  kind: 'heading' | 'paragraph' | 'table'
+  text: string
+
+  /** 后端按 Unicode 字符计数的左闭右开范围。 */
+  start_char: number
+  end_char: number
+
+  positions: BlockPosition[]
+  table_rows: (string | null)[][] | null
+  table_html: string | null
+}
+
+/** 文献全文及统一解析结构。 */
 export interface DocumentParseResult {
   document_id: number
   file_name: string
@@ -99,6 +136,10 @@ export interface DocumentParseResult {
   character_count: number
   page_count: number | null
   warnings: string[]
+
+  parser_name: string | null
+  pages: ParsedPage[]
+  blocks: ParsedBlock[]
 }
 
 /**

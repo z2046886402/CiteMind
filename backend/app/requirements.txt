@@ -12,3 +12,4 @@ tiktoken==0.8.0
 openai==1.59.9
 elasticsearch==9.0.2
 httpx==0.28.1
+jieba==0.42.1

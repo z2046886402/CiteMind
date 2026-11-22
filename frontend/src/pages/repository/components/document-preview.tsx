@@ -13,8 +13,7 @@ import type {
   DocumentParseResult,
 } from '../../../api/repository'
 
-/** 限制单次展示长度，避免大段文本影响弹窗渲染。 */
-const PREVIEW_CHARACTER_LIMIT = 20000
+import ParsedDocumentView from './parsed-document-view'
 
 interface DocumentPreviewProps {
   document: DocumentItem
@@ -76,10 +75,6 @@ export default function DocumentPreview({
     return () => controller.abort()
   }, [documentId])
 
-  const previewText = result?.content.slice(0, PREVIEW_CHARACTER_LIMIT) || ''
-  const isTruncated =
-    (result?.content.length || 0) > PREVIEW_CHARACTER_LIMIT
-
   return (
     <Modal
       title={`解析预览：${document.file_name}`}
@@ -118,31 +113,12 @@ export default function DocumentPreview({
             />
           ))}
 
-          {isTruncated && (
-            <Alert
-              type="info"
-              showIcon
-              message="当前仅预览前 20,000 个字符，后端返回的文本未因此截断。"
-            />
-          )}
 
-          <pre
-            style={{
-              margin: 0,
-              padding: 16,
-              maxHeight: '55vh',
-              overflowY: 'auto',
-              whiteSpace: 'pre-wrap',
-              overflowWrap: 'anywhere',
-              background: '#fafafa',
-              border: '1px solid #f0f0f0',
-              borderRadius: 6,
-              fontFamily: 'inherit',
-              lineHeight: 1.8,
-            }}
-          >
-            {previewText}
-          </pre>
+          <ParsedDocumentView
+            key={result.document_id}
+            result={result}
+          />
+
         </Space>
       )}
     </Modal>

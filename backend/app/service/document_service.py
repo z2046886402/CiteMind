@@ -15,7 +15,7 @@ from uuid import uuid4
 from exceptions.document import DocumentNotFoundError
 
 from schemas.document import DocumentParseResponse
-from service.text_parser import parse_file
+from service.text_parser import parse_file_structured
 
 from schemas.document import DocumentChunkRequest, DocumentChunkResponse
 from service.text_chunker import TOKENIZER_NAME, split_text
@@ -352,22 +352,28 @@ def parse_document(
     if not source_path.resolve().is_relative_to(STORAGE_ROOT.resolve()):
         raise ValueError("文献存储路径异常")
 
-    content, page_count, warnings = parse_file(source_path)
+    parsed = parse_file_structured(source_path)
 
     logger.info(
-        "文献文本提取完成，user_id=%s，document_id=%s，characters=%s",
+        "文献文本提取完成，user_id=%s，document_id=%s，"
+        "characters=%s，blocks=%s，parser=%s",
         user_id,
         document_id,
-        len(content),
+        len(parsed.content),
+        len(parsed.blocks),
+        parsed.parser_name,
     )
 
     return DocumentParseResponse(
         document_id=document_id,
         file_name=record.file_name,
-        content=content,
-        character_count=len(content),
-        page_count=page_count,
-        warnings=warnings,
+        content=parsed.content,
+        character_count=len(parsed.content),
+        page_count=parsed.page_count,
+        warnings=parsed.warnings,
+        parser_name=parsed.parser_name,
+        pages=parsed.pages,
+        blocks=parsed.blocks,
     )
 
 
