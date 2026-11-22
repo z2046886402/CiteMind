@@ -17,7 +17,7 @@ import type {
   DocumentParseResult,
   ParsedBlock,
 } from '../../../api/repository'
-
+import ParsedTableView from './parsed-table-view'
 const PREVIEW_CHARACTER_LIMIT = 20000
 
 const BLOCK_LABEL: Record<ParsedBlock['kind'], string> = {
@@ -178,7 +178,12 @@ export default function ParsedDocumentView({
             </span>
           </Space>
 
-          <TextPreview text={block.text} />
+          {/* 表格使用行列视图，其余解析块继续展示普通文本。 */}
+          {block.kind === 'table' && block.table_rows?.length ? (
+            <ParsedTableView rows={block.table_rows} />
+          ) : (
+            <TextPreview text={block.text} />
+          )}
 
           <Pagination
             current={currentBlock}
