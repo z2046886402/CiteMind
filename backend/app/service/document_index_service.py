@@ -21,17 +21,22 @@ from service.embedding_service import (
 from service.search_index_service import VECTOR_FIELD, ensure_chunk_index
 from utils.database import SessionLocal
 from utils.es_client import create_es_client, get_chunk_index_name
-
+from service.document_index_state_service import (
+    mark_index_run_failed,
+    start_index_run,
+)
 logger = logging.getLogger(__name__)
 
 # 当前接口同步执行，先限制整篇规模；更长文献后续改用后台任务。
 MAX_SYNC_CHUNKS = 200
 
 
-def index_document(
+def _build_document_index(
     user_id: int,
     document_id: int,
     options: DocumentChunkRequest,
+    *,
+    run_id: str,
 ) -> DocumentIndexResponse:
     """为当前用户的一份文献建立完整分块索引。
 
@@ -39,6 +44,7 @@ def index_document(
         user_id: 从已验证 JWT 中取得的用户编号。
         document_id: PostgreSQL 中的真实文献编号。
         options: 文本分块参数。
+        run_id: 已登记的任务编号，写入前用于确认任务仍然有效。
 
     Returns:
         本次写入数量及旧分块清理数量。
@@ -100,6 +106,16 @@ def index_document(
             # 文献可能在远程模型调用期间已被删除，写入前再次确认。
             if record is None:
                 raise DocumentNotFoundError("文献不存在")
+
+            # 任务可能在向量生成期间因超时被新任务接管。
+            # 当前已持有文献行锁，核对通过后才能执行 ES 写入。
+            if (
+                record.index_run_id != run_id
+                or record.index_status != "indexing"
+            ):
+                raise SearchIndexError(
+                    "当前索引任务已失效，已停止本次写入"
+                )
 
             def build_actions():
                 """逐条生成操作，字段必须与严格映射保持一致。"""
@@ -213,6 +229,18 @@ def index_document(
 
             removed_count = cleanup.get("deleted", 0)
 
+            # 分块写入、旧分块清理及数量检查全部通过后，才登记成功。
+            finished_at = datetime.now(timezone.utc)
+
+            record.index_status = "indexed"
+            record.index_finished_at = finished_at
+            record.index_error = None
+            record.indexed_at = finished_at
+            record.indexed_chunks = succeeded
+
+            # 成功状态在释放文献行锁前提交。
+            db.commit()
+
     logger.info(
         "文献索引完成，user_id=%s，document_id=%s，chunks=%s，removed=%s",
         user_id,
@@ -231,3 +259,54 @@ def index_document(
         removed_old_chunks=removed_count,
         warnings=document.warnings,
     )
+
+
+def index_document(
+    user_id: int,
+    document_id: int,
+    options: DocumentChunkRequest,
+) -> DocumentIndexResponse:
+    """登记任务、执行索引，并在异常时回写对应任务的失败状态。
+
+    Args:
+        user_id: 已验证的用户编号。
+        document_id: 需要建立索引的真实文献编号。
+        options: 本次采用的分块参数。
+
+    Returns:
+        完整索引构建成功后的响应。
+
+    Notes:
+        任务登记失败时，不修改已有任务的状态。
+        失败状态回写异常不能覆盖最初的业务异常。
+        PostgreSQL 状态与 Elasticsearch 不构成跨系统事务。
+    """
+    # 登记放在 try 外，避免把“已有任务正在执行”误写成任务失败。
+    run_id = start_index_run(user_id, document_id)
+
+    try:
+        return _build_document_index(
+            user_id,
+            document_id,
+            options,
+            run_id=run_id,
+        )
+    except Exception as exc:
+        try:
+            mark_index_run_failed(
+                user_id,
+                document_id,
+                run_id,
+                exc,
+            )
+        except Exception as state_exc:
+            # 状态保存失败时保留最初异常，不输出远程异常原文。
+            logger.error(
+                "索引失败状态回写未确认，"
+                "user_id=%s，document_id=%s，error_type=%s",
+                user_id,
+                document_id,
+                type(state_exc).__name__,
+            )
+
+        raise

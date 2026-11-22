@@ -5,12 +5,30 @@
  */
 import { request } from './request'
 
+/** 最近一次索引任务状态，与后端枚举保持一致。 */
+export type DocumentIndexStatus =
+  | 'unknown'
+  | 'not_indexed'
+  | 'indexing'
+  | 'indexed'
+  | 'failed'
+
 /** 知识库中的文献元数据。 */
+/** 知识库文献元数据及已持久化的索引任务信息。 */
 export interface DocumentItem {
   id: number
   file_name: string
   created_at: string
   updated_at: string
+
+  index_status: DocumentIndexStatus
+  index_started_at: string | null
+  index_finished_at: string | null
+  index_error: string | null
+
+  /** 最近一次成功记录，重建失败时仍可能有值。 */
+  indexed_at: string | null
+  indexed_chunks: number | null
 }
 
 /** 单份文献上传成功后的响应。 */
@@ -151,6 +169,44 @@ export async function generateDocumentChunks(
     {
       signal,
       timeout: 120000,
+    },
+  )
+
+  return response.data
+}
+
+/** 一次文献索引请求成功后的结果。 */
+export interface DocumentIndexResult {
+  document_id: number
+  file_name: string
+  index_name: string
+  model: string
+  dimensions: number
+  indexed_chunks: number
+  removed_old_chunks: number
+  warnings: string[]
+}
+
+/**
+ * 为当前用户的文献建立搜索索引。
+ *
+ * @param documentId 数据库中的真实文献编号。
+ * @param options 分块大小和重叠数量，单位为 Token。
+ * @param signal 取消浏览器等待的信号，不保证后端立即停止。
+ * @returns 本次写入、旧分块清理数量及处理提示。
+ */
+export async function buildDocumentIndex(
+  documentId: number,
+  options: DocumentChunkOptions,
+  signal?: AbortSignal,
+): Promise<DocumentIndexResult> {
+  const response = await request.post<DocumentIndexResult>(
+    `/documents/${documentId}/index`,
+    options,
+    {
+      signal,
+      // 整篇文献需要多次向量请求，允许等待五分钟。
+      timeout: 300000,
     },
   )
 

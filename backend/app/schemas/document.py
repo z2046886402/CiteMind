@@ -3,9 +3,19 @@
 from pydantic import BaseModel
 from datetime import datetime
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, model_validator
+
+# 与文献模型中的数据库状态约束保持一致。
+DocumentIndexStatus = Literal[
+    "unknown",
+    "not_indexed",
+    "indexing",
+    "indexed",
+    "failed",
+]
+
 
 class DocumentUploadData(BaseModel):
     """描述上传成功的文献，不暴露服务器本机存储路径。"""
@@ -33,6 +43,14 @@ class DocumentListItem(BaseModel):
     file_name: str
     created_at: datetime
     updated_at: datetime
+    # 最近一次任务状态与最近成功记录分别返回。
+    index_status: DocumentIndexStatus
+    index_started_at: datetime | None = None
+    index_finished_at: datetime | None = None
+    index_error: str | None = None
+
+    indexed_at: datetime | None = None
+    indexed_chunks: int | None = Field(default=None, ge=0)
 
 
 class DocumentParseResponse(BaseModel):
@@ -48,6 +66,7 @@ class DocumentParseResponse(BaseModel):
     character_count: int
     page_count: int | None = None
     warnings: list[str]
+
 
 class DocumentChunkRequest(BaseModel):
     """定义 Token 窗口分块参数。"""

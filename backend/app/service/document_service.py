@@ -144,7 +144,7 @@ def list_documents(
     db: Session,
     user_id: int,
 ) -> list[DocumentListItem]:
-    """查询当前用户的文献，按创建时间倒序返回。
+    """查询当前用户的文献，按创建时间升序返回。
 
     Args:
         db: 当前请求使用的数据库会话。
@@ -177,6 +177,12 @@ def list_documents(
             file_name=record.file_name,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            index_status=record.index_status,
+            index_started_at=record.index_started_at,
+            index_finished_at=record.index_finished_at,
+            index_error=record.index_error,
+            indexed_at=record.indexed_at,
+            indexed_chunks=record.indexed_chunks,
         )
         for record in records
     ]
@@ -363,6 +369,7 @@ def parse_document(
         page_count=page_count,
         warnings=warnings,
     )
+
 
 def chunk_document(
     db: Session,
