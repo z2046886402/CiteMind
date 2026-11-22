@@ -258,3 +258,25 @@ export async function buildDocumentIndex(
 
   return response.data
 }
+
+/**
+ * 获取当前用户拥有的 PDF 原文件。
+ *
+ * JWT 由共享请求实例添加，不放入 URL。
+ * 返回 Blob，供浏览器创建本地预览地址。
+ */
+export async function getDocumentPdf(
+  documentId: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await request.get<Blob>(
+    `/documents/${documentId}/pdf`,
+    {
+      responseType: 'blob',
+      signal,
+      timeout: 60000,
+    },
+  )
+
+  return response.data
+}

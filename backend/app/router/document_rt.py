@@ -49,6 +49,8 @@ from exceptions.search import SearchIndexError
 from schemas.search import DocumentIndexResponse
 from service.document_index_service import index_document
 
+from fastapi import Response
+from service.document_service import read_pdf_document
 
 
 router = APIRouter(tags=["文献管理"])
@@ -171,7 +173,7 @@ def remove_document(
             status_code=503,
             detail="搜索分块清理未完成，本次未删除文献记录，请稍后重试",
         ) from exc
-    
+
     except (ValueError, OSError, SQLAlchemyError) as exc:
         logger.exception(
             "文献删除失败，user_id=%s，document_id=%s",
@@ -331,6 +333,7 @@ def preview_embeddings(
             detail="文献处理失败，请稍后重试",
         ) from exc
 
+
 @router.post(
     "/documents/{document_id}/index",
     response_model=DocumentIndexResponse,
@@ -380,3 +383,86 @@ def build_document_index(
             status_code=500,
             detail="文献处理失败，请稍后重试",
         ) from exc
+
+
+@router.get(
+    "/documents/{document_id}/pdf",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "application/pdf": {}
+            }
+        }
+    },
+    summary="预览当前用户的 PDF 原文件",
+)
+def preview_document_pdf(
+    document_id: int = Path(
+        ...,
+        gt=0,
+        description="真实文献编号",
+    ),
+    credentials: JwtAuthorizationCredentials = Security(
+        access_security
+    ),
+    db: Session = Depends(get_db),
+) -> Response:
+    """检查登录用户及文献归属，返回 PDF 二进制内容。"""
+    user_id = credentials["user_id"]
+
+    if type(user_id) is not int or user_id <= 0:
+        raise HTTPException(
+            status_code=401,
+            detail="登录凭证无效",
+        )
+
+    try:
+        if db.get(User, user_id) is None:
+            raise HTTPException(
+                status_code=401,
+                detail="用户不存在",
+            )
+
+        content = read_pdf_document(
+            db,
+            user_id,
+            document_id,
+        )
+
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="文献不存在或原文件不可用",
+        ) from exc
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    except (OSError, SQLAlchemyError) as exc:
+        logger.error(
+            "PDF 原文读取失败，user_id=%s，document_id=%s，"
+            "error_type=%s",
+            user_id,
+            document_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="原文件读取失败，请稍后重试",
+        ) from exc
+
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": (
+                'inline; filename="document.pdf"'
+            ),
+        },
+    )

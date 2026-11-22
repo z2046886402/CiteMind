@@ -29,7 +29,7 @@ import MessageHistory from './components/message-history'
 
 import type { RerankMethod } from '../../api/search'
 import RerankSelect from '../../components/rerank-select'
-import ChunkSourceTags from '../../components/chunk-source-tags'
+import ReferencePreview from './components/reference-preview'
 
 interface QuestionFormValues {
   question: string
@@ -480,37 +480,15 @@ export default function ChatPage() {
         }
       >
         {selectedReference && (
-          <>
-            <p>
-              文献 ID：{selectedReference.document_id}；
-              分块编号：{selectedReference.chunk_index}
-            </p>
-
-            <pre
-              style={{
-                padding: 16,
-                maxHeight: '55vh',
-                overflowY: 'auto',
-                whiteSpace: 'pre-wrap',
-                overflowWrap: 'anywhere',
-                background: '#fafafa',
-                borderRadius: 6,
-                fontFamily: 'inherit',
-                lineHeight: 1.8,
-              }}
-            >
-              {selectedReference.content}
-              <ChunkSourceTags
-                pageNumbers={selectedReference.page_numbers}
-                containsTable={selectedReference.contains_table}
-              />
-            </pre>
-
-            <p>
-              解析后全文字符范围：
-              [{selectedReference.start_char}, {selectedReference.end_char})
-            </p>
-          </>
+          <ReferencePreview
+            key={[
+              selectedReference.document_id,
+              selectedReference.start_char,
+              selectedReference.end_char,
+              selectedReference.citation_id,
+            ].join(':')}
+            reference={selectedReference}
+          />
         )}
       </Modal>
     </Space>

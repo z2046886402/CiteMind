@@ -437,3 +437,72 @@ def chunk_document(
         chunks=chunks,
         warnings=parsed.warnings,
     )
+
+
+def read_pdf_document(
+    db: Session,
+    user_id: int,
+    document_id: int,
+) -> bytes:
+    """校验文献归属，读取允许预览的 PDF 原文件。
+
+    Args:
+        db: 当前请求的数据库会话。
+        user_id: 从已验证登录令牌中取得的用户编号。
+        document_id: 文献的真实数据库编号。
+
+    Returns:
+        PDF 原文件的二进制内容。
+
+    Raises:
+        DocumentNotFoundError: 文献不属于当前用户或原文件不存在。
+        ValueError: 文件类型、大小或存储路径不符合要求。
+        OSError: 文件读取失败。
+
+    Notes:
+        读取期间持有共享行锁，与现有删除流程协调。
+        当前文件上限为 20 MiB，读取完成后再发送响应。
+    """
+    record = (
+        db.query(KnowledgeBase)
+        .filter(
+            KnowledgeBase.id == document_id,
+            KnowledgeBase.user_id == str(user_id),
+        )
+        .with_for_update(read=True)
+        .first()
+    )
+
+    if record is None:
+        raise DocumentNotFoundError("文献不可用")
+
+    if Path(record.file_name).suffix.lower() != ".pdf":
+        raise ValueError("当前仅支持 PDF 原文预览")
+
+    # 文件路径由服务端生成，不接受客户端传入本机路径。
+    source_path = (
+        STORAGE_ROOT
+        / str(user_id)
+        / str(document_id)
+        / "source.pdf"
+    )
+
+    if not source_path.resolve().is_relative_to(
+        STORAGE_ROOT.resolve()
+    ):
+        raise ValueError("文献存储路径异常")
+
+    try:
+        with source_path.open("rb") as source:
+            # 多读一个字节，用于识别超出上限的文件。
+            content = source.read(MAX_FILE_SIZE + 1)
+    except FileNotFoundError as exc:
+        raise DocumentNotFoundError("文献不可用") from exc
+
+    if len(content) > MAX_FILE_SIZE:
+        raise ValueError("文件超过当前 20 MiB 的预览限制")
+
+    if b"%PDF-" not in content[:1024]:
+        raise ValueError("原文件没有有效的 PDF 文件头")
+
+    return content
