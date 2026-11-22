@@ -11,6 +11,8 @@ from schemas.document import DocumentChunkItem
 
 import re
 from bisect import bisect_left, bisect_right
+from schemas.parsed_document import ParsedBlock
+
 
 logger = logging.getLogger(__name__)
 
@@ -105,23 +107,113 @@ def _choose_chunk_end(
     return hard_end
 
 
+def collect_table_row_ranges(
+    blocks: list[ParsedBlock],
+) -> dict[tuple[int, int], list[tuple[int, int]]]:
+    """根据结构化表格数据计算真实行在全文中的字符范围。
+
+    使用与 PDF 解析器一致的文本组织规则：单元格之间使用制表符，
+    行之间使用换行。单元格内部的换行属于该单元格，不作为行边界。
+
+    Returns:
+        键为整张表格的字符范围，值为各行连续的字符范围。
+
+    Raises:
+        ValueError: 表格行列数据与解析块文本不一致。
+    """
+    result: dict[
+        tuple[int, int],
+        list[tuple[int, int]],
+    ] = {}
+
+    for block in blocks:
+        if block.kind != "table" or not block.table_rows:
+            continue
+
+        row_texts = [
+            "\t".join(cell or "" for cell in row)
+            for row in block.table_rows
+        ]
+        raw_text = "\n".join(row_texts)
+
+        # 必须与解析器输出一致，不能通过字符串搜索猜测行的位置。
+        if raw_text.strip() != block.text:
+            raise ValueError("表格行列数据与解析文本不一致")
+
+        # 解析器对整张表格执行过 strip，需要同步修正行的偏移。
+        leading = len(raw_text) - len(raw_text.lstrip())
+        trailing_end = len(raw_text.rstrip())
+
+        ranges: list[tuple[int, int]] = []
+        cursor = 0
+
+        for index, row_text in enumerate(row_texts):
+            # 将行间分隔符归入前一行，确保范围连续、没有遗漏。
+            row_end = cursor + len(row_text) + (
+                1 if index + 1 < len(row_texts) else 0
+            )
+
+            left = max(cursor, leading)
+            right = min(row_end, trailing_end)
+
+            if left < right:
+                ranges.append(
+                    (
+                        block.start_char + left - leading,
+                        block.start_char + right - leading,
+                    )
+                )
+
+            cursor = row_end
+
+        result[
+            (block.start_char, block.end_char)
+        ] = ranges
+
+    return result
+
+
 def _collect_table_intervals(
     text: str,
     table_ranges: list[tuple[int, int]],
     character_boundaries: list[int],
     token_boundaries: list[int],
     chunk_size: int,
+    table_row_ranges: (
+        dict[tuple[int, int], list[tuple[int, int]]] | None
+    ) = None,
 ) -> list[tuple[int, int]]:
-    """将表格字符范围转换为需要保护的 Token 区间。
+    """生成分块时需要保护的整表或表格行 Token 区间。
 
-    表格边缘可能落在某个 Token 内部，因此向外对齐到同时满足
-    Token 边界和完整字符边界的位置，避免破坏表格文字。
+    能放入一块的表格整体保护；超长表格优先保护每一行。
+    单行超过上限时，回退到普通文本分块。
 
-    对齐后重叠的区间合并处理；超过分块上限的区间不进行
-    完整性保护，继续交给普通文本分块逻辑处理。
+    所有区间都使用全文的 Token 流，保持现有偏移量的含义。
     """
+
+    def token_interval(
+        left_char: int,
+        right_char: int,
+    ) -> tuple[int, int]:
+        """向外对齐到同时满足 Token 和完整字符边界的位置。"""
+        left = bisect_right(
+            character_boundaries,
+            left_char,
+        ) - 1
+
+        right = bisect_left(
+            character_boundaries,
+            right_char,
+        )
+
+        return (
+            token_boundaries[left],
+            token_boundaries[right],
+        )
+
     intervals: list[tuple[int, int]] = []
     previous_end = 0
+    row_map = table_row_ranges or {}
 
     for start_char, end_char in sorted(table_ranges):
         if not 0 <= start_char < end_char <= len(text):
@@ -132,28 +224,47 @@ def _collect_table_intervals(
 
         previous_end = end_char
 
-        # 起点向左、终点向右对齐，确保区间覆盖完整表格。
-        left = bisect_right(
-            character_boundaries,
-            start_char,
-        ) - 1
+        whole = token_interval(start_char, end_char)
+        rows = row_map.get((start_char, end_char))
 
-        right = bisect_left(
-            character_boundaries,
-            end_char,
-        )
-
-        start_token = token_boundaries[left]
-        end_token = token_boundaries[right]
-
-        # 原始范围不重叠，但向外对齐后可能覆盖同一个 Token。
-        if intervals and start_token < intervals[-1][1]:
-            intervals[-1] = (
-                intervals[-1][0],
-                max(intervals[-1][1], end_token),
-            )
+        if (
+            whole[1] - whole[0] <= chunk_size
+            or not rows
+        ):
+            # 整表可容纳时保持完整；没有行信息时沿用原有处理。
+            candidates = [whole]
         else:
-            intervals.append((start_token, end_token))
+            candidates: list[tuple[int, int]] = []
+            cursor = start_char
+
+            for row_start, row_end in rows:
+                # 行范围必须按顺序连续覆盖表格，避免遗漏字符。
+                if (
+                    row_start != cursor
+                    or not row_start < row_end <= end_char
+                ):
+                    raise ValueError("表格行字符范围不连续或越界")
+
+                candidates.append(
+                    token_interval(row_start, row_end)
+                )
+                cursor = row_end
+
+            if cursor != end_char:
+                raise ValueError("表格行字符范围未完整覆盖表格")
+
+        for start_token, end_token in candidates:
+            # 相邻行向外对齐后可能覆盖同一个 Token，
+            # 此时合并保护，避免从 Token 内部切开。
+            if intervals and start_token < intervals[-1][1]:
+                intervals[-1] = (
+                    intervals[-1][0],
+                    max(intervals[-1][1], end_token),
+                )
+            else:
+                intervals.append(
+                    (start_token, end_token)
+                )
 
     protected = [
         interval
@@ -163,7 +274,8 @@ def _collect_table_intervals(
 
     if len(protected) < len(intervals):
         logger.info(
-            "超出 Token 上限的表格区域按普通文本分块，regions=%s",
+            "超出 Token 上限的表格或行区域按普通文本分块，"
+            "regions=%s",
             len(intervals) - len(protected),
         )
 
@@ -176,6 +288,9 @@ def split_text(
     chunk_overlap: int,
     *,
     table_ranges: list[tuple[int, int]] | None = None,
+    table_row_ranges: (
+        dict[tuple[int, int], list[tuple[int, int]]] | None
+    ) = None,
 ) -> list[DocumentChunkItem]:
     """在 Token 上限内，优先选择段落和句末边界生成重叠分块。
 
@@ -184,6 +299,7 @@ def split_text(
         chunk_size: 原文 Token 流中每块的覆盖数量上限。
         chunk_overlap: 相邻窗口的目标重叠数量。
         table_ranges: 表格在全文中的字符范围，采用左闭右开区间。
+        table_row_ranges: 每张表格对应的真实行字符范围。
 
     Returns:
         按原文顺序排列、从 1 开始编号的分块列表。
@@ -199,7 +315,7 @@ def split_text(
         重叠区的开头可能位于句子内部，实际重叠量可能略小于目标值。
         分隔符仅作为结构提示，本函数不执行语义理解。
         能放入单块的表格保持完整，必要时减少重叠。
-        超过上限的表格继续按普通文本规则分块。
+        超长表格优先保护完整行；单行超限时按普通文本规则分块。
     """
     if not 64 <= chunk_size <= 2048:
         raise ValueError("分块大小必须在 64 至 2048 之间")
@@ -257,12 +373,14 @@ def split_text(
     ]
 
     # 使用全文的统一 Token 流定位表格，保持现有偏移量的含义。
+    # 保护范围可能是一整张表格，也可能是超长表格中的某一行。
     table_intervals = _collect_table_intervals(
         text=text,
         table_ranges=table_ranges or [],
         character_boundaries=valid_character_boundaries,
         token_boundaries=valid_token_boundaries,
         chunk_size=chunk_size,
+        table_row_ranges=table_row_ranges,
     )
 
     table_starts = [
@@ -307,8 +425,8 @@ def split_text(
                 ),
                 boundary_groups=boundary_groups,
             )
-        # 如果结束位置落在受保护表格内部，尝试包含整张表格；
-        # 当前窗口装不下时，在表格之前结束，留给下一块处理。
+        # 如果结束位置落在受保护区域内部，尝试包含整个区域；
+        # 当前窗口装不下时，在区域之前结束，留给下一块处理。
         table_position = bisect_right(
             table_starts,
             end,
@@ -367,7 +485,8 @@ def split_text(
                 ]
 
                 if table_start < next_start < table_end:
-                    # 表格已完整包含在上一块中，下一块从表格后开始。
+                    # 当前保护区域已完整包含在上一块中，
+                    # 下一块从该区域之后开始。
                     next_start = table_end
 
         start = next_start

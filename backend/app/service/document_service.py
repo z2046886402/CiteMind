@@ -18,7 +18,11 @@ from schemas.document import DocumentParseResponse
 from service.text_parser import parse_file_structured
 
 from schemas.document import DocumentChunkRequest, DocumentChunkResponse
-from service.text_chunker import TOKENIZER_NAME, split_text
+from service.text_chunker import (
+    TOKENIZER_NAME,
+    collect_table_row_ranges,
+    split_text,
+)
 
 from service.search_cleanup_service import delete_document_chunks
 
@@ -397,11 +401,17 @@ def chunk_document(
         if block.kind == "table"
     ]
 
+    # 从结构化行列数据恢复行边界，避免误拆单元格内部的换行。
+    table_row_ranges = collect_table_row_ranges(
+        parsed.blocks
+    )
+
     chunks = split_text(
         text=parsed.content,
         chunk_size=options.chunk_size,
         chunk_overlap=options.chunk_overlap,
         table_ranges=table_ranges,
+        table_row_ranges=table_row_ranges,
     )
 
     logger.info(
