@@ -22,7 +22,7 @@ import type {
   DocumentChunkResult,
   DocumentItem,
 } from '../../../api/repository'
-
+import ChunkSourceTags from '../../../components/chunk-source-tags'
 interface ChunkPreviewProps {
   document: DocumentItem
   onClose: () => void
@@ -222,7 +222,10 @@ export default function ChunkPreview({
                 <span>字符数：{currentChunk.character_count}</span>
                 <span>原文 Token 数：{currentChunk.token_count}</span>
               </Space>
-
+              <ChunkSourceTags
+                pageNumbers={currentChunk.page_numbers}
+                containsTable={currentChunk.contains_table}
+              />
               <div>
                 全文字符范围：
                 [{currentChunk.start_char}, {currentChunk.end_char})；

@@ -25,7 +25,7 @@ from service.text_chunker import (
 )
 
 from service.search_cleanup_service import delete_document_chunks
-
+from service.chunk_source_service import attach_chunk_sources
 logger = logging.getLogger(__name__)
 
 # 使用绝对路径，避免启动目录变化导致文件保存位置发生变化。
@@ -412,6 +412,12 @@ def chunk_document(
         chunk_overlap=options.chunk_overlap,
         table_ranges=table_ranges,
         table_row_ranges=table_row_ranges,
+    )
+
+    # 分块完成后，使用同一份解析结果计算来源，避免重新解析。
+    chunks = attach_chunk_sources(
+        chunks=chunks,
+        blocks=parsed.blocks,
     )
 
     logger.info(

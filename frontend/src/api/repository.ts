@@ -179,6 +179,11 @@ export interface DocumentChunkItem {
   end_char: number
   start_token: number
   end_token: number
+  /** 整个来源分块涉及的真实页码；旧数据可能没有。 */
+  page_numbers?: number[]
+
+  /** null 或缺失表示尚未提供表格信息。 */
+  contains_table?: boolean | null
 }
 
 /** 后端返回的完整分块结果。 */

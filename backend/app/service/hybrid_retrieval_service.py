@@ -154,6 +154,8 @@ def hybrid_search(
                 "content_with_weight",
                 "start_char",
                 "end_char",
+                "page_numbers",
+                "contains_table",
             ],
             allow_partial_search_results=False,
         )
@@ -245,6 +247,9 @@ def hybrid_search(
                 content=source["content_with_weight"],
                 start_char=source["start_char"],
                 end_char=source["end_char"],
+                # 兼容尚未重新建立索引的历史分块。
+                page_numbers=source.get("page_numbers", []),
+                contains_table=source.get("contains_table"),
                 score=score,
                 cosine_similarity=cosine,
             )

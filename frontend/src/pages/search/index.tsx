@@ -25,6 +25,7 @@ import type {
   SemanticSearchResult,
 } from '../../api/search'
 import RerankSelect from '../../components/rerank-select'
+import ChunkSourceTags from '../../components/chunk-source-tags'
 export default function SearchPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -263,6 +264,10 @@ export default function SearchPage() {
                 }}
               >
                 {item.content}
+                <ChunkSourceTags
+                  pageNumbers={item.page_numbers}
+                  containsTable={item.contains_table}
+                />
               </pre>
 
               <p style={{ marginBottom: 0, color: '#666' }}>

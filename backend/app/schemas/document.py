@@ -112,6 +112,11 @@ class DocumentChunkItem(BaseModel):
     end_char: int
     start_token: int
     end_token: int
+    # 页码来自解析器；空列表表示没有可靠页码。
+    page_numbers: list[int] = Field(default_factory=list)
+
+    # None 表示来源信息未知，兼容尚未补充元数据的旧分块。
+    contains_table: bool | None = None
 
 
 class DocumentChunkResponse(BaseModel):

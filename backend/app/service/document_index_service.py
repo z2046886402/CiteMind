@@ -138,6 +138,8 @@ def _build_document_index(
                             "token_count": chunk.token_count,
                             "start_char": chunk.start_char,
                             "end_char": chunk.end_char,
+                            "page_numbers": chunk.page_numbers,
+                            "contains_table": chunk.contains_table,
                             "start_token": chunk.start_token,
                             "end_token": chunk.end_token,
                             "chunk_size": options.chunk_size,

@@ -71,6 +71,9 @@ class SemanticSearchItem(BaseModel):
     end_char: int
     score: float
     cosine_similarity: float
+    # 描述整个来源分块，引用文本截短后仍保留这一含义。
+    page_numbers: list[int] = Field(default_factory=list)
+    contains_table: bool | None = None
     # 原始召回分数保持不变，重排方式和重排分数单独记录。
     # 默认允许为空，以兼容已有接口和历史引用快照。
     rerank_method: RerankMethod | None = None

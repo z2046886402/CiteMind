@@ -36,6 +36,11 @@ export interface SemanticSearchItem {
 
   /** 最终排序分数，不表示回答正确率。 */
   rerank_score?: number | null
+  /** 整个来源分块涉及的真实页码；旧数据可能没有。 */
+  page_numbers?: number[]
+
+  /** null 或缺失表示尚未提供表格信息。 */
+  contains_table?: boolean | null
 }
 
 /** 检索响应，不包含生成式回答。 */
@@ -45,6 +50,11 @@ export interface SemanticSearchResult {
   returned_count: number
   items: SemanticSearchItem[]
   warnings: string[]
+  /** 整个来源分块涉及的真实页码；旧数据可能没有。 */
+  page_numbers?: number[]
+
+  /** null 或缺失表示尚未提供表格信息。 */
+  contains_table?: boolean | null
 }
 
 /**

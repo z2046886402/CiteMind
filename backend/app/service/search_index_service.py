@@ -13,7 +13,7 @@ from service.text_chunker import TOKENIZER_NAME
 
 logger = logging.getLogger(__name__)
 
-INDEX_SCHEMA_VERSION = 1
+INDEX_SCHEMA_VERSION = 2
 
 # 沿用原项目的向量字段命名方式。
 VECTOR_FIELD = f"q_{EMBEDDING_DIMENSIONS}_vec"
@@ -48,7 +48,9 @@ def build_chunk_mapping() -> dict[str, Any]:
         "type": "text",
         "analyzer": "standard",
     }
-
+    # Elasticsearch 的整数类型字段可以直接保存整数数组。
+    properties["page_numbers"] = {"type": "integer"}
+    properties["contains_table"] = {"type": "boolean"}
     properties["created_at"] = {"type": "date"}
 
     properties[VECTOR_FIELD] = {
@@ -85,6 +87,7 @@ def _contains_expected(actual: Any, expected: Any) -> bool:
         )
 
     return actual == expected
+
 
 def ensure_chunk_index(
     client: Elasticsearch,
@@ -140,7 +143,7 @@ def ensure_chunk_index(
 
     for field_name, definition in expected["properties"].items():
         actual_definition = dict(
-        actual_properties.get(field_name, {})
+            actual_properties.get(field_name, {})
         )
 
         if actual_definition.get("type") == "dense_vector":
@@ -159,3 +162,77 @@ def ensure_chunk_index(
         EMBEDDING_DIMENSIONS,
     )
     return created
+
+
+def upgrade_chunk_source_mapping(
+    client: Elasticsearch,
+    index_name: str,
+) -> None:
+    """为兼容的旧索引补充来源字段，并更新结构版本。
+
+    只接受当前模型配置下的第一版或第二版索引。
+    更新前检查原有字段，拒绝掩盖模型、维度或字段类型冲突。
+    本函数不删除索引，也不修改已有分块正文和向量。
+    """
+    expected = build_chunk_mapping()
+
+    if not client.indices.exists(index=index_name):
+        ensure_chunk_index(client, index_name)
+        return
+
+    actual = client.indices.get_mapping(
+        index=index_name,
+    )[index_name]["mappings"]
+
+    legacy_meta = {
+        **expected["_meta"],
+        "schema_version": 1,
+    }
+
+    if actual.get("dynamic") != expected["dynamic"]:
+        raise ValueError("索引动态映射策略不兼容，停止迁移")
+
+    if actual.get("_meta") not in (
+        legacy_meta,
+        expected["_meta"],
+    ):
+        raise ValueError("索引模型配置或结构版本不兼容，停止迁移")
+
+    source_fields = {
+        "page_numbers",
+        "contains_table",
+    }
+
+    actual_properties = actual.get("properties", {})
+
+    for name, definition in expected["properties"].items():
+        # 仅允许新增的来源字段暂时缺失。
+        if (
+            name in source_fields
+            and name not in actual_properties
+        ):
+            continue
+
+        current = dict(
+            actual_properties.get(name, {})
+        )
+
+        if current.get("type") == "dense_vector":
+            current.setdefault("element_type", "float")
+
+        if not _contains_expected(current, definition):
+            raise ValueError(
+                f"索引字段配置不兼容，停止迁移：{name}"
+            )
+
+    client.indices.put_mapping(
+        index=index_name,
+        properties={
+            name: expected["properties"][name]
+            for name in source_fields
+        },
+        meta=expected["_meta"],
+    )
+
+    # 写入后使用正常初始化流程再次核对。
+    ensure_chunk_index(client, index_name)

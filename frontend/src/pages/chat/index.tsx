@@ -29,7 +29,7 @@ import MessageHistory from './components/message-history'
 
 import type { RerankMethod } from '../../api/search'
 import RerankSelect from '../../components/rerank-select'
-
+import ChunkSourceTags from '../../components/chunk-source-tags'
 
 interface QuestionFormValues {
   question: string
@@ -500,6 +500,10 @@ export default function ChatPage() {
               }}
             >
               {selectedReference.content}
+              <ChunkSourceTags
+                pageNumbers={selectedReference.page_numbers}
+                containsTable={selectedReference.contains_table}
+              />
             </pre>
 
             <p>
