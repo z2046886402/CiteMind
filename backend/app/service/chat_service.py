@@ -281,10 +281,13 @@ def answer_document_question(
 
         retrieval_question = rewritten.question
 
+
     retrieval_options = SemanticSearchRequest(
         question=retrieval_question,
         top_k=options.top_k,
         min_similarity=options.min_similarity,
+        # 保留用户选择，避免重新构造请求时恢复成默认值。
+        rerank_method=options.rerank_method,
     )
 
     # 先融合关键词和向量结果，再沿用现有资料截断及引用编号规则。

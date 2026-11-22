@@ -17,7 +17,13 @@ from service.search_index_service import VECTOR_FIELD, ensure_chunk_index
 from utils.database import SessionLocal
 from utils.es_client import create_es_client, get_chunk_index_name
 
+from service.rule_rerank_service import rerank_by_rule
+
+from service.model_rerank_service import rerank_by_model
+
 logger = logging.getLogger(__name__)
+# 控制进入重排阶段的有效候选数量，与最终返回数量 top_k 分开。
+MAX_RERANK_CANDIDATES = 20
 
 
 def _require_complete(response: Any) -> None:
@@ -41,7 +47,7 @@ def hybrid_search(
         options: 问题、最多返回条数和最终结果的最低余弦相似度。
 
     Returns:
-        按混合分数降序排列的片段，最多 top_k 条。
+        按用户选择的重排方式排序，最多返回 top_k 条。
 
     Raises:
         AuthError: 用户不存在。
@@ -52,7 +58,8 @@ def hybrid_search(
         沿用原项目初始权重：关键词 0.05、向量 0.95。
         BM25 与向量分数量纲不同，权重不是实际贡献百分比。
         两个分支均限制用户和模型，返回前再次核对数据库归属。
-        score 是融合排序分数；cosine_similarity 单独计算。
+        score 保留混合召回分数，最终按 rerank_score 排序。
+        cosine_similarity 独立计算，不被重排分数覆盖。
         最低余弦相似度作用于两个分支的最终候选。
         候选集有限，过滤后可能不足 top_k，不保证全局精确召回。
         不记录问题、正文或向量，远程请求期间不持有数据库连接。
@@ -109,8 +116,11 @@ def hybrid_search(
         # 使用与文献相同的向量服务，保证模型及维度一致。
         question_vector = generate_embeddings([options.question])[0]
 
-        # 多取少量候选，给后续过滤已删除文献留出空间。
-        candidate_k = max(options.top_k * 3, 20)
+        # 多召回一些候选，为归属校验、相似度过滤和后续重排留出空间。
+        candidate_k = max(
+            options.top_k * 3,
+            MAX_RERANK_CANDIDATES,
+        )
 
         response = client.search(
             index=index_name,
@@ -165,7 +175,8 @@ def hybrid_search(
                             "bool": {
                                 "filter": [
                                     scope_filter,
-                                    {"ids": {"values": [hit["_id"] for hit in hits]}},
+                                    {"ids": {"values": [hit["_id"]
+                                                        for hit in hits]}},
                                 ]
                             }
                         },
@@ -239,14 +250,67 @@ def hybrid_search(
             )
         )
 
-        if len(items) >= options.top_k:
+        # 此处收集的是重排候选，不能提前截断到最终返回数量。
+        if len(items) >= MAX_RERANK_CANDIDATES:
             break
 
+    # 候选已完成用户归属及最低余弦相似度过滤。
+    rerank_candidate_count = len(items)
+    rerank_warnings: list[str] = []
+
+    if options.rerank_method == "rule":
+        items = rerank_by_rule(options.question, items)
+    else:
+        items, rerank_warnings = rerank_by_model(
+            options.question,
+            items,
+        )
+
+    if options.rerank_method == "model" and items:
+        # 外部模型调用期间不持有数据库连接。
+        # 调用结束后重新核对账号和文献归属，过滤已删除记录。
+        with SessionLocal() as db:
+            if db.get(User, user_id) is None:
+                raise AuthError("用户不存在")
+
+            records = (
+                db.query(KnowledgeBase.id, KnowledgeBase.file_name)
+                .filter(
+                    KnowledgeBase.user_id == str(user_id),
+                    KnowledgeBase.id.in_({
+                        item.document_id
+                        for item in items
+                    }),
+                )
+                .all()
+            )
+
+            current_names = {
+                record.id: record.file_name
+                for record in records
+            }
+
+        items = [
+            item.model_copy(
+                update={
+                    "file_name": current_names[item.document_id],
+                }
+            )
+            for item in items
+            if item.document_id in current_names
+        ]
+
+    # 必须在重排完成后截取，保证高相关候选有机会进入最终结果。
+    items = items[:options.top_k]
+
     logger.info(
-        "混合检索完成，user_id=%s，candidates=%s，returned=%s",
+        "混合检索完成，user_id=%s，candidates=%s，"
+        "rerank_candidates=%s，returned=%s，rerank_method=%s",
         user_id,
         len(hits),
+        rerank_candidate_count,
         len(items),
+        options.rerank_method,
     )
 
     return SemanticSearchResponse(
@@ -254,5 +318,7 @@ def hybrid_search(
         model=EMBEDDING_MODEL,
         returned_count=len(items),
         items=items,
-        warnings=[] if items else ["未找到可用的相关文献片段"],
+        warnings=rerank_warnings + (
+            [] if items else ["未找到可用的相关文献片段"]
+        ),
     )

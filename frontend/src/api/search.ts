@@ -6,11 +6,16 @@
  */
 import { request } from './request'
 
+/** 用户可以选择的重排方式，与后端枚举保持一致。 */
+export type RerankMethod = 'rule' | 'model'
+
 /** 单次检索参数，最低相似度使用原始余弦相似度。 */
 export interface SemanticSearchParams {
   question: string
   top_k: number
   min_similarity: number
+  /** 不传时由后端默认使用规则重排，兼容已有调用。 */
+  rerank_method?: RerankMethod
 }
 
 /** 相关片段及其所属文献和位置。 */
@@ -26,6 +31,11 @@ export interface SemanticSearchItem {
 
   /** 单独计算的余弦相似度，与混合排序分数含义不同。 */
   cosine_similarity: number
+  /** 旧结果和历史引用可能没有重排字段。 */
+  rerank_method?: RerankMethod | null
+
+  /** 最终排序分数，不表示回答正确率。 */
+  rerank_score?: number | null
 }
 
 /** 检索响应，不包含生成式回答。 */
@@ -42,8 +52,10 @@ export interface SemanticSearchResult {
  *
  * @param params 问题、最多返回条数和最终结果的最低余弦相似度。
  * @param signal 取消客户端等待的信号。
- * @returns 按混合分数降序排列的相关片段。
+ * @returns 按所选重排方式排序的片段，保留原始混合召回分数。
  */
+/** 用户可以选择的重排方式，与后端枚举保持一致。 */
+
 export async function searchDocuments(
   params: SemanticSearchParams,
   signal?: AbortSignal,

@@ -63,6 +63,8 @@ def _generate_document_answer(
             question=retrieval_question,
             top_k=options.top_k,
             min_similarity=options.min_similarity,
+            # 流式与非流式问答使用相同的重排选择。
+            rerank_method=options.rerank_method,
         ),
     )
 

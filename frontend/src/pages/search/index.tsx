@@ -2,7 +2,7 @@
  * 文献混合检索页面。
  *
  * 收集检索参数，展示关键词与向量融合后的相关片段。
- * 混合分数用于排序，余弦相似度单独展示。
+ * 最终按重排分数排序，混合召回分数和余弦相似度分别展示。
  * 结果内容按普通文本渲染，不执行文献中的 HTML。
  */
 import {
@@ -24,7 +24,7 @@ import type {
   SemanticSearchParams,
   SemanticSearchResult,
 } from '../../api/search'
-
+import RerankSelect from '../../components/rerank-select'
 export default function SearchPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -109,6 +109,7 @@ export default function SearchPage() {
           initialValues={{
             top_k: 5,
             min_similarity: 0,
+            rerank_method: 'rule',
           }}
           onFinish={handleSearch}
         >
@@ -134,7 +135,16 @@ export default function SearchPage() {
               placeholder="例如：如何利用深度学习判断鱼类摄食强度？"
             />
           </Form.Item>
-
+          <Form.Item
+            label="重排方式"
+            name="rerank_method"
+            rules={[
+              { required: true, message: '请选择重排方式' },
+            ]}
+            extra="规则重排使用本地计算；模型重排会额外调用接口，可能增加费用和等待时间。"
+          >
+            <RerankSelect />
+          </Form.Item>
           <Space align="start" wrap>
             <Form.Item
               label="最多返回片段数"
@@ -225,7 +235,16 @@ export default function SearchPage() {
                 <Tag color="blue">
                   余弦相似度：{item.cosine_similarity.toFixed(4)}
                 </Tag>
-                <span>混合排序分数：{item.score.toFixed(4)}</span>
+                <span>
+                  混合召回分数：{item.score.toFixed(4)}
+                </span>
+
+                {item.rerank_score != null && (
+                  <Tag color="purple">
+                    {item.rerank_method === 'model' ? '模型' : '规则'}
+                    重排分数：{item.rerank_score.toFixed(4)}
+                  </Tag>
+                )}
                 <span>文献 ID：{item.document_id}</span>
               </Space>
 

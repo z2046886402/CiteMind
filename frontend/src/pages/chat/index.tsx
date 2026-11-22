@@ -27,9 +27,15 @@ import type { ChatSession } from '../../api/session'
 import SessionPanel from './components/session-panel'
 import MessageHistory from './components/message-history'
 
+import type { RerankMethod } from '../../api/search'
+import RerankSelect from '../../components/rerank-select'
+
 
 interface QuestionFormValues {
   question: string
+
+  /** 本轮问答使用的重排方式。 */
+  rerank_method: RerankMethod
 }
 
 export default function ChatPage() {
@@ -96,6 +102,7 @@ export default function ChatPage() {
           question: values.question.trim(),
           top_k: 5,
           min_similarity: 0.3,
+          rerank_method: values.rerank_method,
         },
         sessionId,
         {
@@ -125,7 +132,9 @@ export default function ChatPage() {
 
       setHistoryRevision((value) => value + 1)
       setSessionRevision((value) => value + 1)
-      questionForm.resetFields()
+
+      // 只清空问题，保留用户选择，方便连续比较两种方式。
+      questionForm.resetFields(['question'])
     } catch (error: unknown) {
       if (controller.signal.aborted) {
         return
@@ -160,336 +169,346 @@ export default function ChatPage() {
     }
   }
 
-    /**
-   * 停止接收当前回答，并恢复页面操作能力。
-   *
-   * 先解除当前请求引用，再触发取消，避免旧请求的清理逻辑
-   * 影响用户随后提交的新请求。不清空问题输入，便于修改。
-   *
-   * 浏览器取消不保证后端立即停止；历史刷新仅反映查询时的状态。
-   */
-    function handleStopAnswer(): void {
-      const controller = controllerRef.current
+  /**
+ * 停止接收当前回答，并恢复页面操作能力。
+ *
+ * 先解除当前请求引用，再触发取消，避免旧请求的清理逻辑
+ * 影响用户随后提交的新请求。不清空问题输入，便于修改。
+ *
+ * 浏览器取消不保证后端立即停止；历史刷新仅反映查询时的状态。
+ */
+  function handleStopAnswer(): void {
+    const controller = controllerRef.current
 
-      if (!controller || controller.signal.aborted) {
-        return
-      }
-
-      controllerRef.current = null
-      controller.abort()
-
-      setLoading(false)
-      setStreamText('')
-      setStreamStatus('')
-      setResult(null)
-      setSelectedReference(null)
-      setError('')
-
-      setStopNotice(
-        '已停止接收回答。请核对会话历史；如果后端仍在处理，可稍后再次刷新历史。',
-      )
-
-      // 回答可能已保存，但浏览器尚未收到完成通知。
-      setHistoryRevision((value) => value + 1)
-      setSessionRevision((value) => value + 1)
+    if (!controller || controller.signal.aborted) {
+      return
     }
 
-    /** 切换目标时清除旧回答与引用，避免跨会话显示。 */
-    function handleSelectSession(session: ChatSession): void {
-      if (controllerRef.current) {
-        return
-      }
+    controllerRef.current = null
+    controller.abort()
 
-      setActiveSession(session)
-      setResult(null)
-      setStreamText('')
-      setStreamStatus('')
-      setError('')
-      setStopNotice('')
-      setSelectedReference(null)
-      questionForm.resetFields()
+    setLoading(false)
+    setStreamText('')
+    setStreamStatus('')
+    setResult(null)
+    setSelectedReference(null)
+    setError('')
+
+    setStopNotice(
+      '已停止接收回答。请核对会话历史；如果后端仍在处理，可稍后再次刷新历史。',
+    )
+
+    // 回答可能已保存，但浏览器尚未收到完成通知。
+    setHistoryRevision((value) => value + 1)
+    setSessionRevision((value) => value + 1)
+  }
+
+  /** 切换目标时清除旧回答与引用，避免跨会话显示。 */
+  function handleSelectSession(session: ChatSession): void {
+    if (controllerRef.current) {
+      return
     }
 
-    /** 历史已展示新消息后，移除临时回答，避免重复展示。 */
-    const handleHistoryLoaded = useCallback((messageIds: string[]) => {
-      setResult((current) => {
-        if (
-          current?.message_id &&
-          messageIds.includes(current.message_id)
-        ) {
-          return null
+    setActiveSession(session)
+    setResult(null)
+    setStreamText('')
+    setStreamStatus('')
+    setError('')
+    setStopNotice('')
+    setSelectedReference(null)
+    questionForm.resetFields()
+  }
+
+  /** 历史已展示新消息后，移除临时回答，避免重复展示。 */
+  const handleHistoryLoaded = useCallback((messageIds: string[]) => {
+    setResult((current) => {
+      if (
+        current?.message_id &&
+        messageIds.includes(current.message_id)
+      ) {
+        return null
+      }
+
+      return current
+    })
+  }, [])
+
+
+  /** 更新当前会话标题，不清空用户正在编辑的问题。 */
+  function handleSessionRenamed(session: ChatSession): void {
+    setActiveSession((current) =>
+      current?.session_id === session.session_id ? session : current,
+    )
+  }
+
+  /** 当前会话删除后，清除其回答、引用和输入状态。 */
+  function handleSessionDeleted(sessionId: string): void {
+    if (activeSession?.session_id !== sessionId) {
+      return
+    }
+
+    setActiveSession(null)
+    setResult(null)
+    setStreamText('')
+    setStreamStatus('')
+    setError('')
+    setStopNotice('')
+    setSelectedReference(null)
+    questionForm.resetFields()
+  }
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+
+      <SessionPanel
+        activeId={activeSession?.session_id}
+        disabled={loading || workspaceBusy}
+        reloadToken={sessionRevision}
+        onSelect={handleSelectSession}
+        onBusyChange={setWorkspaceBusy}
+        onRenamed={handleSessionRenamed}
+        onDeleted={handleSessionDeleted}
+      />
+
+      <Card
+        title={
+          activeSession
+            ? `文献问答：${activeSession.session_name}`
+            : '请先选择或新建会话'
         }
-
-        return current
-      })
-    }, [])
-
-
-    /** 更新当前会话标题，不清空用户正在编辑的问题。 */
-    function handleSessionRenamed(session: ChatSession): void {
-      setActiveSession((current) =>
-        current?.session_id === session.session_id ? session : current,
-      )
-    }
-
-    /** 当前会话删除后，清除其回答、引用和输入状态。 */
-    function handleSessionDeleted(sessionId: string): void {
-      if (activeSession?.session_id !== sessionId) {
-        return
-      }
-
-      setActiveSession(null)
-      setResult(null)
-      setStreamText('')
-      setStreamStatus('')
-      setError('')
-      setStopNotice('')
-      setSelectedReference(null)
-      questionForm.resetFields()
-    }
-
-    return (
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-
-        <SessionPanel
-          activeId={activeSession?.session_id}
-          disabled={loading || workspaceBusy}
-          reloadToken={sessionRevision}
-          onSelect={handleSelectSession}
-          onBusyChange={setWorkspaceBusy}
-          onRenamed={handleSessionRenamed}
-          onDeleted={handleSessionDeleted}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message="通过关键词与向量共同检索当前账号的文献，再生成回答；点击引用编号可核对原文。"
+          style={{ marginBottom: 20 }}
         />
 
-        <Card
-          title={
-            activeSession
-              ? `文献问答：${activeSession.session_name}`
-              : '请先选择或新建会话'
-          }
+        <Form<QuestionFormValues>
+          form={questionForm}
+          initialValues={{ rerank_method: 'rule' }}
+          layout="vertical"
+          disabled={loading || workspaceBusy || !activeSession}
+          onFinish={handleAsk}
         >
-          <Alert
-            type="info"
-            showIcon
-            message="通过关键词与向量共同检索当前账号的文献，再生成回答；点击引用编号可核对原文。"
-            style={{ marginBottom: 20 }}
-          />
-
-          <Form<QuestionFormValues>
-            form={questionForm}
-            layout="vertical"
-            disabled={loading || workspaceBusy || !activeSession}
-            onFinish={handleAsk}
+          <Form.Item
+            label="你的问题"
+            name="question"
+            rules={[
+              {
+                required: true,
+                whitespace: true,
+                message: '请输入问题',
+              },
+              {
+                max: 1000,
+                message: '问题不能超过 1000 个字符',
+              },
+            ]}
           >
-            <Form.Item
-              label="你的问题"
-              name="question"
-              rules={[
-                {
-                  required: true,
-                  whitespace: true,
-                  message: '请输入问题',
-                },
-                {
-                  max: 1000,
-                  message: '问题不能超过 1000 个字符',
-                },
-              ]}
-            >
-              <Input.TextArea
-                rows={3}
-                maxLength={1000}
-                showCount
-                placeholder="例如：这篇研究采用了什么方法，主要结论是什么？"
-              />
-            </Form.Item>
-
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-              >
-                生成回答
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-
-        {loading && (
-          <Card
-            title="正在生成回答"
-            extra={
-              <Button
-                danger
-                htmlType="button"
-                onClick={handleStopAnswer}
-              >
-                停止回答
-              </Button>
-            }
+            <Input.TextArea
+              rows={3}
+              maxLength={1000}
+              showCount
+              placeholder="例如：这篇研究采用了什么方法，主要结论是什么？"
+            />
+          </Form.Item>
+          <Form.Item
+            label="重排方式"
+            name="rerank_method"
+            rules={[
+              { required: true, message: '请选择重排方式' },
+            ]}
+            extra="规则重排使用本地计算；模型重排会额外调用接口，可能增加费用和等待时间。"
           >
-            <Space>
-              <Spin size="small" />
-              <span>{streamStatus || '正在处理，请稍候'}</span>
-            </Space>
-
-            {streamText && (
-              <div
-                style={{
-                  marginTop: 20,
-                  whiteSpace: 'pre-wrap',
-                  overflowWrap: 'anywhere',
-                  lineHeight: 1.8,
-                }}
-              >
-                {streamText}
-              </div>
-            )}
-
-            <p
-              style={{
-                marginBottom: 0,
-                marginTop: 16,
-                color: '#888',
-              }}
+            <RerankSelect />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
             >
-              回答完成后可点击引用编号核对原文。
-            </p>
-          </Card>
-        )}
+              生成回答
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
 
-        {stopNotice && (
-          <Alert
-            type="info"
-            showIcon
-            message="已停止接收"
-            description={stopNotice}
-          />
-        )}
-        {error && <Alert type="error" showIcon message={error} />}
-
-        {result && (
-          <>
-            <Card title="本次问题">
-              {result.question}
-            </Card>
-
-            {result.warnings.map((warning, index) => (
-              <Alert
-                key={`${index}-${warning}`}
-                type="warning"
-                showIcon
-                message={warning}
-              />
-            ))}
-
-            {result.status === 'generated' ? (
-              <>
-                <Card title="文献回答">
-                  <CitedAnswer
-                    answer={result.answer}
-                    references={result.references}
-                    onReadReference={setSelectedReference}
-                  />
-
-                  <p style={{ marginBottom: 0, color: '#666' }}>
-                    引用编号已通过格式检查，回答中的结论仍需核对原文。
-                  </p>
-                </Card>
-
-                <Card title="引用来源">
-                  <Space
-                    direction="vertical"
-                    style={{ width: '100%' }}
-                  >
-                    {result.references.map((reference) => (
-                      <Button
-                        key={reference.citation_id}
-                        type="link"
-                        style={{
-                          height: 'auto',
-                          whiteSpace: 'normal',
-                          textAlign: 'left',
-                        }}
-                        onClick={() => setSelectedReference(reference)}
-                      >
-                        [{reference.citation_id}] {reference.file_name}
-                        （第 {reference.chunk_index} 块）
-                      </Button>
-                    ))}
-                  </Space>
-                </Card>
-              </>
-            ) : (
-              <Alert
-                type="warning"
-                showIcon
-                message={
-                  result.status === 'no_evidence'
-                    ? '未找到可用资料'
-                    : '现有资料不足'
-                }
-                description={result.answer}
-              />
-            )}
-          </>
-        )}
-
-        {activeSession && (
-          <MessageHistory
-            key={`${activeSession.session_id}:${historyRevision}`}
-            sessionId={activeSession.session_id}
-            onReadReference={setSelectedReference}
-            onLoaded={handleHistoryLoaded}
-          />
-        )}
-
-        <Modal
-          title={
-            selectedReference
-              ? `引用 [${selectedReference.citation_id}]：${selectedReference.file_name}`
-              : '引用来源'
-          }
-          open={selectedReference !== null}
-          width={900}
-          onCancel={() => setSelectedReference(null)}
-          footer={
-            <Button onClick={() => setSelectedReference(null)}>
-              关闭
+      {loading && (
+        <Card
+          title="正在生成回答"
+          extra={
+            <Button
+              danger
+              htmlType="button"
+              onClick={handleStopAnswer}
+            >
+              停止回答
             </Button>
           }
         >
-          {selectedReference && (
-            <>
-              <p>
-                文献 ID：{selectedReference.document_id}；
-                分块编号：{selectedReference.chunk_index}
-              </p>
+          <Space>
+            <Spin size="small" />
+            <span>{streamStatus || '正在处理，请稍候'}</span>
+          </Space>
 
-              <pre
-                style={{
-                  padding: 16,
-                  maxHeight: '55vh',
-                  overflowY: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  overflowWrap: 'anywhere',
-                  background: '#fafafa',
-                  borderRadius: 6,
-                  fontFamily: 'inherit',
-                  lineHeight: 1.8,
-                }}
-              >
-                {selectedReference.content}
-              </pre>
-
-              <p>
-                解析后全文字符范围：
-                [{selectedReference.start_char}, {selectedReference.end_char})
-              </p>
-            </>
+          {streamText && (
+            <div
+              style={{
+                marginTop: 20,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                lineHeight: 1.8,
+              }}
+            >
+              {streamText}
+            </div>
           )}
-        </Modal>
-      </Space>
-    )
-  }
+
+          <p
+            style={{
+              marginBottom: 0,
+              marginTop: 16,
+              color: '#888',
+            }}
+          >
+            回答完成后可点击引用编号核对原文。
+          </p>
+        </Card>
+      )}
+
+      {stopNotice && (
+        <Alert
+          type="info"
+          showIcon
+          message="已停止接收"
+          description={stopNotice}
+        />
+      )}
+      {error && <Alert type="error" showIcon message={error} />}
+
+      {result && (
+        <>
+          <Card title="本次问题">
+            {result.question}
+          </Card>
+
+          {result.warnings.map((warning, index) => (
+            <Alert
+              key={`${index}-${warning}`}
+              type="warning"
+              showIcon
+              message={warning}
+            />
+          ))}
+
+          {result.status === 'generated' ? (
+            <>
+              <Card title="文献回答">
+                <CitedAnswer
+                  answer={result.answer}
+                  references={result.references}
+                  onReadReference={setSelectedReference}
+                />
+
+                <p style={{ marginBottom: 0, color: '#666' }}>
+                  引用编号已通过格式检查，回答中的结论仍需核对原文。
+                </p>
+              </Card>
+
+              <Card title="引用来源">
+                <Space
+                  direction="vertical"
+                  style={{ width: '100%' }}
+                >
+                  {result.references.map((reference) => (
+                    <Button
+                      key={reference.citation_id}
+                      type="link"
+                      style={{
+                        height: 'auto',
+                        whiteSpace: 'normal',
+                        textAlign: 'left',
+                      }}
+                      onClick={() => setSelectedReference(reference)}
+                    >
+                      [{reference.citation_id}] {reference.file_name}
+                      （第 {reference.chunk_index} 块）
+                    </Button>
+                  ))}
+                </Space>
+              </Card>
+            </>
+          ) : (
+            <Alert
+              type="warning"
+              showIcon
+              message={
+                result.status === 'no_evidence'
+                  ? '未找到可用资料'
+                  : '现有资料不足'
+              }
+              description={result.answer}
+            />
+          )}
+        </>
+      )}
+
+      {activeSession && (
+        <MessageHistory
+          key={`${activeSession.session_id}:${historyRevision}`}
+          sessionId={activeSession.session_id}
+          onReadReference={setSelectedReference}
+          onLoaded={handleHistoryLoaded}
+        />
+      )}
+
+      <Modal
+        title={
+          selectedReference
+            ? `引用 [${selectedReference.citation_id}]：${selectedReference.file_name}`
+            : '引用来源'
+        }
+        open={selectedReference !== null}
+        width={900}
+        onCancel={() => setSelectedReference(null)}
+        footer={
+          <Button onClick={() => setSelectedReference(null)}>
+            关闭
+          </Button>
+        }
+      >
+        {selectedReference && (
+          <>
+            <p>
+              文献 ID：{selectedReference.document_id}；
+              分块编号：{selectedReference.chunk_index}
+            </p>
+
+            <pre
+              style={{
+                padding: 16,
+                maxHeight: '55vh',
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                background: '#fafafa',
+                borderRadius: 6,
+                fontFamily: 'inherit',
+                lineHeight: 1.8,
+              }}
+            >
+              {selectedReference.content}
+            </pre>
+
+            <p>
+              解析后全文字符范围：
+              [{selectedReference.start_char}, {selectedReference.end_char})
+            </p>
+          </>
+        )}
+      </Modal>
+    </Space>
+  )
+}
