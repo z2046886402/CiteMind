@@ -11,6 +11,8 @@ import { getMessages } from '../../../api/session'
 import type { AnswerReference } from '../../../api/chat'
 import type { MessageListResult } from '../../../api/session'
 import CitedAnswer from './cited-answer'
+import ExportAnswerButton from './export-answer-button'
+
 
 const PAGE_SIZE = 10
 
@@ -59,11 +61,11 @@ export default function MessageHistory({
           targetPage === 1
             ? firstPage
             : await getMessages(
-                sessionId,
-                targetPage,
-                PAGE_SIZE,
-                controller.signal,
-              )
+              sessionId,
+              targetPage,
+              PAGE_SIZE,
+              controller.signal,
+            )
 
         if (!controller.signal.aborted) {
           setResult(data)
@@ -110,6 +112,9 @@ export default function MessageHistory({
             key={item.message_id}
             size="small"
             title={`第 ${item.message_no} 次问答`}
+            extra={
+              <ExportAnswerButton result={item} />
+            }
           >
             <p><strong>问题：</strong>{item.question}</p>
 

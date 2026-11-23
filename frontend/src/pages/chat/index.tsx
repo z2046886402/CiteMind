@@ -30,6 +30,7 @@ import MessageHistory from './components/message-history'
 import type { RerankMethod } from '../../api/search'
 import RerankSelect from '../../components/rerank-select'
 import ReferencePreview from './components/reference-preview'
+import ExportAnswerButton from './components/export-answer-button'
 
 interface QuestionFormValues {
   question: string
@@ -390,7 +391,12 @@ export default function ChatPage() {
 
       {result && (
         <>
-          <Card title="本次问题">
+          <Card
+            title="本次问题"
+            extra={
+              <ExportAnswerButton result={result} />
+            }
+          >
             {result.question}
           </Card>
 
