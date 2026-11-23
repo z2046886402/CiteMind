@@ -23,6 +23,8 @@ export interface DocumentChatResult {
   message_id: string | null
   message_no: number | null
   created_at: string | null
+  /** 旧响应可能没有此字段；推荐生成失败时为空列表。 */
+  recommended_questions?: string[]
 }
 
 /**

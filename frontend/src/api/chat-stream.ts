@@ -117,6 +117,21 @@ export async function askDocumentsStream(
               || !Array.isArray(data.warnings)) {
               throw new Error('服务器完成事件缺少必要字段')
             }
+            // 兼容旧响应，同时检查新增字段的基本结构。
+            if (
+              data.recommended_questions !== undefined &&
+              (
+                !Array.isArray(data.recommended_questions) ||
+                data.recommended_questions.length > 3 ||
+                data.recommended_questions.some(
+                  (question) =>
+                    typeof question !== 'string' ||
+                    !question.trim(),
+                )
+              )
+            ) {
+              throw new Error('服务器推荐追问格式不正确')
+            }
             return data as unknown as DocumentChatResult
           }
         }

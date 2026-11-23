@@ -19,7 +19,7 @@ from service.chat_service import (
 from service.chat_stream_service import stream_chat_model
 from service.hybrid_retrieval_service import hybrid_search
 from service.session_chat_service import save_session_answer
-
+from service.chat_service import _add_recommended_questions
 # 事件名称与事件数据组成一个元组，由路由层转换为 SSE 文本。
 StreamEvent = tuple[str, dict[str, Any]]
 
@@ -195,7 +195,11 @@ def stream_answer_in_session(
         options,
         history,
     )
-
+    if result.status == "generated":
+        yield "status", {
+            "message": "正在生成推荐追问"
+        }
+        result = _add_recommended_questions(result)
     yield "status", {"message": "正在保存回答"}
 
     saved_result = save_session_answer(

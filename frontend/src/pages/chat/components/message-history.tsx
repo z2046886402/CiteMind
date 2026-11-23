@@ -12,7 +12,7 @@ import type { AnswerReference } from '../../../api/chat'
 import type { MessageListResult } from '../../../api/session'
 import CitedAnswer from './cited-answer'
 import ExportAnswerButton from './export-answer-button'
-
+import RecommendedQuestions from './recommended-questions'
 
 const PAGE_SIZE = 10
 
@@ -20,12 +20,16 @@ interface MessageHistoryProps {
   sessionId: string
   onReadReference: (reference: AnswerReference) => void
   onLoaded: (messageIds: string[]) => void
+  disabled: boolean
+  onAskQuestion: (question: string) => void
 }
 
 export default function MessageHistory({
   sessionId,
   onReadReference,
   onLoaded,
+  disabled,
+  onAskQuestion,
 }: MessageHistoryProps) {
   // 0 表示首次加载时定位到最新一页。
   const [requestedPage, setRequestedPage] = useState(0)
@@ -131,7 +135,13 @@ export default function MessageHistory({
                 message={item.answer}
               />
             )}
-
+            {item.status === 'generated' && (
+              <RecommendedQuestions
+                questions={item.recommended_questions}
+                disabled={disabled}
+                onAsk={onAskQuestion}
+              />
+            )}
             {item.warnings.map((warning, index) => (
               <Alert
                 key={`${item.message_id}-${index}`}

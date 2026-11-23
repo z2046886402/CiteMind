@@ -31,7 +31,7 @@ import type { RerankMethod } from '../../api/search'
 import RerankSelect from '../../components/rerank-select'
 import ReferencePreview from './components/reference-preview'
 import ExportAnswerButton from './components/export-answer-button'
-
+import RecommendedQuestions from './components/recommended-questions'
 interface QuestionFormValues {
   question: string
 
@@ -203,7 +203,26 @@ export default function ChatPage() {
     setHistoryRevision((value) => value + 1)
     setSessionRevision((value) => value + 1)
   }
+  /**
+   * 在当前会话追加一次追问。
+   *
+   * 复用表单校验与提交流程，保留用户当前选择的重排方式。
+   */
+  function handleRecommendedQuestion(
+    question: string,
+  ): void {
+    if (
+      !activeSession ||
+      loading ||
+      workspaceBusy ||
+      controllerRef.current
+    ) {
+      return
+    }
 
+    questionForm.setFieldValue('question', question)
+    questionForm.submit()
+  }
   /** 切换目标时清除旧回答与引用，避免跨会话显示。 */
   function handleSelectSession(session: ChatSession): void {
     if (controllerRef.current) {
@@ -417,7 +436,11 @@ export default function ChatPage() {
                   references={result.references}
                   onReadReference={setSelectedReference}
                 />
-
+                <RecommendedQuestions
+                  questions={result.recommended_questions}
+                  disabled={loading || workspaceBusy}
+                  onAsk={handleRecommendedQuestion}
+                />
                 <p style={{ marginBottom: 0, color: '#666' }}>
                   引用编号已通过格式检查，回答中的结论仍需核对原文。
                 </p>
@@ -467,6 +490,8 @@ export default function ChatPage() {
           sessionId={activeSession.session_id}
           onReadReference={setSelectedReference}
           onLoaded={handleHistoryLoaded}
+          disabled={loading || workspaceBusy}
+          onAskQuestion={handleRecommendedQuestion}
         />
       )}
 

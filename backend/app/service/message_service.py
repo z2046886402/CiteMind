@@ -25,6 +25,7 @@ def _to_message_response(record: Message) -> MessageResponse:
         references=record.documents,
         used_citation_ids=record.used_citation_ids,
         warnings=record.warnings,
+        recommended_questions=record.recommended_questions,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

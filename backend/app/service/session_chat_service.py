@@ -50,13 +50,18 @@ def answer_in_session(
             session_id,
         )
 
-        result = answer_document_question(
-            user_id,
-            options,
-            history=history,
-        )
+    # 历史读取完成后释放数据库连接，再进行远程模型调用。
+    result = answer_document_question(
+        user_id,
+        options,
+        history=history,
+    )
 
-    return save_session_answer(user_id, session_id, result)
+    return save_session_answer(
+        user_id,
+        session_id,
+        result,
+    )
 
 
 def save_session_answer(
@@ -113,6 +118,9 @@ def save_session_answer(
                 ],
                 used_citation_ids=list(result.used_citation_ids),
                 warnings=list(result.warnings),
+                recommended_questions=list(
+                    result.recommended_questions
+                ),
                 created_at=saved_at,
                 updated_at=saved_at,
             )

@@ -1,13 +1,33 @@
 """定义单轮文献问答的请求、引用及响应结构。"""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from schemas.search import SemanticSearchItem, SemanticSearchRequest
 
 from datetime import datetime
 from uuid import UUID
+
+# 推荐问题采用单行文本，限制长度，避免异常输出直接进入页面。
+RecommendedQuestion = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=2,
+        max_length=160,
+        pattern=r"^[^\r\n]+$",
+    ),
+]
+
+
+class RecommendedQuestionsPayload(BaseModel):
+    """校验推荐问题模型返回的 JSON 数据。"""
+
+    recommended_questions: list[RecommendedQuestion] = Field(
+        min_length=1,
+        max_length=3,
+    )
 
 
 class DocumentChatRequest(SemanticSearchRequest):
@@ -47,3 +67,8 @@ class DocumentChatResponse(BaseModel):
     # 本次请求的调试信息，当前不持久化到消息表。
     retrieval_question: str | None = None
     history_turns: int | None = None
+    # 默认空列表，兼容没有推荐问题的回答和旧消息。
+    recommended_questions: list[RecommendedQuestion] = Field(
+        default_factory=list,
+        max_length=3,
+    )

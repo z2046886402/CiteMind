@@ -109,7 +109,13 @@ class Message(Base):
         default=list,
         comment="本次问答的提示信息",
     )
-
+    recommended_questions = Column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default="[]",
+        comment="本次回答对应的推荐追问",
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
