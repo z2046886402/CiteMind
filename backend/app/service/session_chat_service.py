@@ -13,6 +13,10 @@ from service.chat_service import answer_document_question
 from service.session_service import get_owned_session
 from utils.database import SessionLocal
 from service.context_service import load_recent_history
+from service.session_title_service import (
+    fallback_session_title,
+    prepare_initial_session_title,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +47,7 @@ def answer_in_session(
     """
     # 先校验会话，避免为无权访问的会话产生模型调用。
     # 在已验证归属的会话内读取历史快照，随后释放数据库会话。
+
     with SessionLocal() as db:
         history = load_recent_history(
             db,
@@ -86,6 +91,12 @@ def save_session_answer(
         SessionNotFoundError: 会话已删除或不属于当前用户。
         MessagePersistenceError: 数据库提交结果未确认。
     """
+    # 在保存事务外准备标题，避免远程调用期间持有会话行锁。
+    candidate_title = prepare_initial_session_title(
+        user_id,
+        session_id,
+        result.question,
+    )
     with SessionLocal() as db:
         try:
             # 会话可能在模型调用期间发生变化，保存前重新校验。
@@ -102,6 +113,21 @@ def save_session_answer(
                 .scalar()
             )
             next_number = (latest_number or 0) + 1
+
+            # 已持有会话行锁，重新确认自动命名资格。
+            # 用户手动改名或其他请求已保存首条消息时，
+            # 当前候选标题不能再覆盖现有名称。
+            if session.auto_title_pending:
+                if next_number == 1:
+                    session.session_name = (
+                        candidate_title
+                        or fallback_session_title(
+                            result.question
+                        )
+                    )
+
+                session.auto_title_pending = False
+
             saved_at = datetime.now(timezone.utc)
 
             message = Message(
@@ -136,6 +162,7 @@ def save_session_answer(
             response = result.model_copy(
                 update={
                     "session_id": session_id,
+                    "session_name": session.session_name,
                     "message_id": message.message_id,
                     "message_no": next_number,
                     "created_at": saved_at,

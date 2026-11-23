@@ -7,6 +7,8 @@ from sqlalchemy.sql import func
 
 from models.base import Base
 
+from sqlalchemy import Boolean
+
 
 class ChatSession(Base):
     """保存会话名称、所属用户及时间信息。
@@ -37,6 +39,15 @@ class ChatSession(Base):
         nullable=False,
         default="新会话",
         comment="会话展示名称",
+    )
+
+    # 独立的数据库字段，与 session_name 保持同一级缩进。
+    auto_title_pending = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="是否等待首条问答自动生成标题",
     )
 
     user_id = Column(

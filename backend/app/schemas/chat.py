@@ -61,6 +61,8 @@ class DocumentChatResponse(BaseModel):
     warnings: list[str]
     # 关联会话并保存成功后填写；临时单轮问答时为空。
     session_id: str | None = None
+    # 保存完成后的当前会话名称，供前端同步标题。
+    session_name: str | None = None
     message_id: UUID | None = None
     message_no: int | None = None
     created_at: datetime | None = None

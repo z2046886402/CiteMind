@@ -1,9 +1,29 @@
 """定义会话创建、详情及分页列表的数据结构。"""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
+
+
+class SessionTitlePayload(BaseModel):
+    """校验模型生成的简短会话标题。"""
+
+    session_name: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=40,
+            pattern=r"^[^\x00-\x1f\x7f]+$",
+        ),
+    ]
 
 
 class SessionCreateRequest(BaseModel):
@@ -13,6 +33,12 @@ class SessionCreateRequest(BaseModel):
         default="新会话",
         min_length=1,
         max_length=255,
+    )
+    # 必须明确开启；未传入该字段的旧客户端继续保留原有行为。
+    auto_title: bool = Field(
+        default=False,
+        strict=True,
+        description="是否为默认名称会话启用首次自动命名",
     )
 
     @field_validator("session_name")
@@ -54,6 +80,7 @@ class SessionListResponse(BaseModel):
     page: int
     page_size: int
     sessions: list[SessionResponse]
+
 
 class SessionRenameRequest(SessionCreateRequest):
     """复用名称校验，但重命名时必须明确提交名称。"""

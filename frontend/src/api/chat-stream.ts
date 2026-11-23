@@ -132,6 +132,16 @@ export async function askDocumentsStream(
             ) {
               throw new Error('服务器推荐追问格式不正确')
             }
+            if (
+              data.session_name !== undefined &&
+              data.session_name !== null &&
+              (
+                typeof data.session_name !== 'string' ||
+                !data.session_name.trim()
+              )
+            ) {
+              throw new Error('服务器会话标题格式不正确')
+            }
             return data as unknown as DocumentChatResult
           }
         }

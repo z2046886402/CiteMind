@@ -36,16 +36,26 @@ export interface MessageListResult {
   messages: SavedMessage[]
 }
 
-/** 创建一份属于当前用户的会话。 */
+/**
+ * 创建会话。
+ *
+ * 只有名称留空的创建操作才开启自动命名，
+ * 默认关闭，保持已有调用方式的兼容性。
+ */
 export async function createSession(
   name: string,
   signal?: AbortSignal,
+  autoTitle = false,
 ): Promise<ChatSession> {
   const response = await request.post<ChatSession>(
     '/create_session',
-    { session_name: name },
+    {
+      session_name: name,
+      auto_title: autoTitle,
+    },
     { signal },
   )
+
   return response.data
 }
 

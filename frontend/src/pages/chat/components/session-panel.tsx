@@ -82,6 +82,7 @@ export default function SessionPanel({
       const session = await createSession(
         name.trim() || '新会话',
         controller.signal,
+        !name.trim(),
       )
 
       if (!controller.signal.aborted) {
@@ -122,7 +123,7 @@ export default function SessionPanel({
             value={name}
             maxLength={255}
             disabled={disabled}
-            placeholder="新会话名称，留空使用默认名称"
+            placeholder="名称留空时，首条问答后自动生成标题"
             style={{ width: 280 }}
             onChange={(event) => setName(event.target.value)}
           />

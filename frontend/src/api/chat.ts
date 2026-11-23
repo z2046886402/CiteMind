@@ -25,6 +25,8 @@ export interface DocumentChatResult {
   created_at: string | null
   /** 旧响应可能没有此字段；推荐生成失败时为空列表。 */
   recommended_questions?: string[]
+  /** 保存后返回的当前会话名称，旧响应可能没有。 */
+  session_name?: string | null
 }
 
 /**

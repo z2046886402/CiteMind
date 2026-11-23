@@ -21,6 +21,8 @@ def create_session(
     db: Session,
     user_id: int,
     session_name: str,
+    *,
+    auto_title: bool = False,
 ) -> SessionCreateResponse:
     """创建一份属于当前用户的空会话。
 
@@ -28,6 +30,7 @@ def create_session(
         db: 当前请求使用的数据库会话。
         user_id: 已完成身份及账号存在性校验的用户编号。
         session_name: 已通过请求模型校验的名称。
+        auto_title: 是否为默认名称会话开启首次自动命名。
 
     Returns:
         已成功提交的会话信息。
@@ -38,6 +41,10 @@ def create_session(
     record = ChatSession(
         user_id=user_id,
         session_name=session_name,
+        # 自定义名称始终保留，即使客户端错误地开启自动命名。
+        auto_title_pending=(
+            auto_title and session_name == "新会话"
+        ),
     )
 
     try:
@@ -150,6 +157,8 @@ def rename_session(
         )
 
         record.session_name = session_name
+        # 用户一旦主动命名，就取消尚未完成的自动命名。
+        record.auto_title_pending = False
         record.updated_at = datetime.now(timezone.utc)
 
         db.flush()

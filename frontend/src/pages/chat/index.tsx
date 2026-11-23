@@ -130,7 +130,24 @@ export default function ChatPage() {
       setStreamText('')
       setStreamStatus('')
       setResult(data)
+      // 同步当前会话标题；列表仍由原有刷新流程重新查询。
+      if (typeof data.session_name === 'string') {
+        const sessionName = data.session_name
 
+        setActiveSession((current) => {
+          if (
+            !current ||
+            current.session_id !== data.session_id
+          ) {
+            return current
+          }
+
+          return {
+            ...current,
+            session_name: sessionName,
+          }
+        })
+      }
       setHistoryRevision((value) => value + 1)
       setSessionRevision((value) => value + 1)
 

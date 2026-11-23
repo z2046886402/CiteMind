@@ -80,7 +80,12 @@ def create_user_session(
 ) -> SessionCreateResponse:
     """创建并持久保存一份空会话。"""
     try:
-        return create_session(db, user_id, options.session_name)
+        return create_session(
+            db,
+            user_id,
+            options.session_name,
+            auto_title=options.auto_title,
+        )
     except SQLAlchemyError as exc:
         logger.exception("会话创建失败，user_id=%s", user_id)
         raise HTTPException(
@@ -138,6 +143,7 @@ def get_user_session(
             detail="会话详情暂不可用，请稍后重试",
         ) from exc
 
+
 @router.get(
     "/get_messages",
     response_model=MessageListResponse,
@@ -188,6 +194,7 @@ def get_session_messages(
             status_code=503,
             detail="历史消息暂不可用，请稍后重试",
         ) from exc
+
 
 @router.patch(
     "/sessions/{session_id}",
