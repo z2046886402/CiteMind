@@ -1,25 +1,23 @@
 /**
- * 批量上传入口：逐份校验、顺序提交并保留各文件的结果。
- * 本组件负责上传，索引建立仍由知识库现有流程处理。
+ * 文献导入入口：逐份上传，并自动调用已有索引流程完成解析、分块和向量写入。
+ * 上传结果与处理结果分别保留，避免索引异常被误认为上传失败。
  */
 import { Button, Modal, Table, Tag } from 'antd'
 import type { TableColumnsType } from 'antd'
 import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
-import { uploadDocument } from '../../../api/repository'
+import { buildDocumentIndex, uploadDocument } from '../../../api/repository'
 
 type UploadStatus =
-  | 'waiting'
-  | 'uploading'
-  | 'success'
-  | 'rejected'
-  | 'failed'
-  | 'unknown'
+  'waiting' | 'uploading' | 'success' | 'rejected' | 'failed' | 'unknown'
+
+type ProcessingStatus = 'not_started' | 'processing' | 'completed' | 'failed' | 'unknown'
 
 interface UploadItem {
   key: string
   fileName: string
   status: UploadStatus
+  processingStatus: ProcessingStatus
   detail: string
 }
 
@@ -32,16 +30,38 @@ interface BatchUploadProps {
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'txt']
 
-const STATUS_META: Record<
-  UploadStatus,
-  { color: string; label: string }
-> = {
+const STATUS_META: Record<UploadStatus, { color: string; label: string }> = {
   waiting: { color: 'default', label: '等待上传' },
   uploading: { color: 'processing', label: '正在上传' },
   success: { color: 'success', label: '上传成功' },
   rejected: { color: 'warning', label: '校验未通过' },
   failed: { color: 'error', label: '上传失败' },
   unknown: { color: 'warning', label: '结果待确认' },
+}
+
+/** 与手动建立索引使用相同的分块参数，确保两种入口结果一致。 */
+const INDEX_OPTIONS = { chunk_size: 512, chunk_overlap: 64 }
+
+const PROCESSING_META: Record<ProcessingStatus, { color: string; label: string }> = {
+  not_started: { color: 'default', label: '未开始' },
+  processing: { color: 'processing', label: '正在处理' },
+  completed: { color: 'success', label: '处理完成' },
+  failed: { color: 'error', label: '处理失败' },
+  unknown: { color: 'warning', label: '结果待确认' },
+}
+
+/** 网络或服务端异常可能发生在写入之后，不能据此自动重试。 */
+function isUncertain(error: unknown): boolean {
+  return !axios.isAxiosError(error) || !error.response || error.response.status >= 500
+}
+
+/** 提取后端明确返回的错误描述，不直接展示异常对象。 */
+function errorDescription(error: unknown, fallback: string): string {
+  if (axios.isAxiosError<{ detail?: unknown }>(error)) {
+    const detail = error.response?.data?.detail
+    if (typeof detail === 'string') return detail
+  }
+  return fallback
 }
 
 const columns: TableColumnsType<UploadItem> = [
@@ -51,13 +71,19 @@ const columns: TableColumnsType<UploadItem> = [
     ellipsis: true,
   },
   {
-    title: '状态',
+    title: '上传状态',
     dataIndex: 'status',
     width: 130,
     render: (status: UploadStatus) => (
-      <Tag color={STATUS_META[status].color}>
-        {STATUS_META[status].label}
-      </Tag>
+      <Tag color={STATUS_META[status].color}>{STATUS_META[status].label}</Tag>
+    ),
+  },
+  {
+    title: '处理状态',
+    dataIndex: 'processingStatus',
+    width: 130,
+    render: (status: ProcessingStatus) => (
+      <Tag color={PROCESSING_META[status].color}>{PROCESSING_META[status].label}</Tag>
     ),
   },
   {
@@ -105,18 +131,16 @@ export default function BatchUpload({
   /** 使用队列键更新单项，同名文件也分别展示。 */
   function updateItem(
     key: string,
-    status: UploadStatus,
-    detail: string,
+    patch: Partial<Pick<UploadItem, 'status' | 'processingStatus' | 'detail'>>,
   ): void {
     setItems((current) =>
-      current.map((item) =>
-        item.key === key ? { ...item, status, detail } : item,
-      ),
+      current.map((item) => (item.key === key ? { ...item, ...patch } : item)),
     )
   }
 
   /**
-   * 同一时间只运行一个上传队列，单份失败继续处理下一份。
+   * 同一时间只运行一个导入队列，每份上传后等待处理结束再继续下一份。
+   * 上传或处理失败仅影响当前文件；上传已确认的文件不会自动重复上传。
    * 页面卸载时取消客户端等待，并停止提交后续文件。
    */
   async function handleFiles(files: File[]): Promise<void> {
@@ -131,6 +155,7 @@ export default function BatchUpload({
         key: String(index),
         fileName: file.name,
         status: error ? 'rejected' : 'waiting',
+        processingStatus: 'not_started',
         detail: error || '等待上传',
       }
     })
@@ -152,48 +177,66 @@ export default function BatchUpload({
         if (controller.signal.aborted) return
         if (item.status === 'rejected') continue
 
-        updateItem(item.key, 'uploading', '正在提交文件')
+        updateItem(item.key, { status: 'uploading', detail: '正在提交文件' })
 
+        let documentId: number
         try {
-          await uploadDocument(files[index], controller.signal)
-
+          const uploaded = await uploadDocument(files[index], controller.signal)
           if (controller.signal.aborted) return
 
-          updateItem(
-            item.key,
-            'success',
-            '已上传，可在列表中建立索引',
-          )
+          // 后端 file_id 是数据库记录编号；禁止用文件名或展示序号匹配索引目标。
+          updateItem(item.key, { status: 'success', detail: '上传成功，准备处理' })
+          documentId = Number(uploaded.data?.file_id)
+          if (!Number.isSafeInteger(documentId) || documentId <= 0) {
+            updateItem(item.key, {
+              processingStatus: 'failed',
+              detail: '已上传，但返回的文献编号无效，请刷新列表后手动建立索引',
+            })
+            continue
+          }
         } catch (error: unknown) {
           if (controller.signal.aborted) return
+          updateItem(item.key, {
+            status: isUncertain(error) ? 'unknown' : 'failed',
+            detail: isUncertain(error)
+              ? '上传结果待确认，请刷新文献列表核对，避免重复上传'
+              : errorDescription(error, '上传请求未成功，请检查后重试'),
+          })
+          continue
+        }
 
-          // 超时、断网或服务端异常可能发生在保存之后，
-          // 因此不自动重试，也不直接断言文件未上传。
-          if (
-            !axios.isAxiosError(error) ||
-            !error.response ||
-            error.response.status >= 500
-          ) {
-            updateItem(
-              item.key,
-              'unknown',
-              '请刷新文献列表核对，再决定是否重新上传',
-            )
-          } else {
-            const detail: unknown = error.response.data?.detail
-
-            updateItem(
-              item.key,
-              'failed',
-              typeof detail === 'string'
-                ? detail
-                : '请求未成功，请检查后重试',
-            )
-          }
+        updateItem(item.key, {
+          processingStatus: 'processing',
+          detail: '正在解析、分块、生成向量并建立索引',
+        })
+        try {
+          const indexed = await buildDocumentIndex(
+            documentId,
+            INDEX_OPTIONS,
+            controller.signal,
+          )
+          if (controller.signal.aborted) return
+          updateItem(item.key, {
+            processingStatus: 'completed',
+            detail:
+              `已建立 ${indexed.indexed_chunks} 个分块，可进行检索和问答` +
+              (indexed.warnings.length
+                ? `；处理提示：${indexed.warnings.join('；')}`
+                : ''),
+          })
+        } catch (error: unknown) {
+          if (controller.signal.aborted) return
+          updateItem(item.key, {
+            processingStatus: isUncertain(error) ? 'unknown' : 'failed',
+            detail:
+              '文件已上传。' +
+              errorDescription(error, '自动处理未完成') +
+              '；请先核对列表中的索引状态，必要时使用“建立索引”，无需重新上传',
+          })
         }
       }
 
-      // 整批结束后只刷新一次列表，避免逐份上传时重复查询。
+      // 整批结束后刷新持久化状态；列表读取失败不改变各文件的上传和处理结果。
       if (!controller.signal.aborted) {
         await onFinished()
       }
@@ -237,9 +280,9 @@ export default function BatchUpload({
       />
 
       <Modal
-        title="批量上传结果"
+        title="文献上传与自动处理"
         open={open}
-        width={820}
+        width={1020}
         closable={!busy}
         maskClosable={!busy}
         keyboard={!busy}
@@ -251,9 +294,10 @@ export default function BatchUpload({
         }
       >
         <p>
-          共 {items.length} 份，
-          成功 {items.filter((item) => item.status === 'success').length} 份
-          {busy ? '，正在依次上传…' : '，本批已结束。'}
+          共 {items.length} 份， 上传成功{' '}
+          {items.filter((item) => item.status === 'success').length} 份 ，处理完成{' '}
+          {items.filter((item) => item.processingStatus === 'completed').length} 份
+          {busy ? '，正在依次上传并处理…' : '，本批已结束。'}
         </p>
 
         <Table<UploadItem>
@@ -262,11 +306,11 @@ export default function BatchUpload({
           dataSource={items}
           columns={columns}
           pagination={false}
-          scroll={{ x: 650, y: 360 }}
+          scroll={{ x: 900, y: 360 }}
         />
 
         <p style={{ color: '#8c8c8c', fontSize: 12 }}>
-          结果待确认的文件请先核对文献列表，避免重复上传。
+          处理期间请保持当前页面打开。上传成功但处理失败的文件无需重传；结果待确认时，请先核对列表中的索引状态。
         </p>
       </Modal>
     </>

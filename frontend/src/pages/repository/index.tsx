@@ -2,25 +2,11 @@
  * 知识库页面：查询当前用户文献，并在上传成功后刷新列表。
  */
 import DocumentPreview from './components/document-preview'
-import {
-  Alert,
-  Button,
-  Card,
-  Modal,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd'
+import { Alert, Button, Card, Modal, Space, Table, Tag, Tooltip, message } from 'antd'
 import type { TableColumnsType } from 'antd'
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  buildDocumentIndex,
-  deleteDocument,
-  listDocuments,
-} from '../../api/repository'
+import { buildDocumentIndex, deleteDocument, listDocuments } from '../../api/repository'
 import type {
   DocumentItem,
   DocumentIndexResult,
@@ -49,10 +35,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 /** 将后端任务状态转换为页面标签，集中维护颜色和文案。 */
-const INDEX_STATUS_META: Record<
-  DocumentIndexStatus,
-  { color: string; label: string }
-> = {
+const INDEX_STATUS_META: Record<DocumentIndexStatus, { color: string; label: string }> = {
   unknown: { color: 'default', label: '待确认' },
   not_indexed: { color: 'default', label: '未建立' },
   indexing: { color: 'processing', label: '处理中' },
@@ -77,18 +60,12 @@ const columns: TableColumnsType<DocumentItem> = [
     title: '最近索引任务',
     dataIndex: 'index_status',
     width: 140,
-    render: (
-      value: DocumentIndexStatus,
-      record: DocumentItem,
-    ) => {
-      const metadata =
-        INDEX_STATUS_META[value] ?? INDEX_STATUS_META.unknown
+    render: (value: DocumentIndexStatus, record: DocumentItem) => {
+      const metadata = INDEX_STATUS_META[value] ?? INDEX_STATUS_META.unknown
 
       return (
         <Tooltip title={record.index_error || undefined}>
-          <Tag color={metadata.color}>
-            {metadata.label}
-          </Tag>
+          <Tag color={metadata.color}>{metadata.label}</Tag>
         </Tooltip>
       )
     },
@@ -104,8 +81,7 @@ const columns: TableColumnsType<DocumentItem> = [
     title: '最近成功时间',
     dataIndex: 'indexed_at',
     width: 200,
-    render: (value: string | null) =>
-      value ? formatTime(value) : '—',
+    render: (value: string | null) => (value ? formatTime(value) : '—'),
   },
 ]
 
@@ -127,10 +103,7 @@ export default function Repository() {
    * 加载文献列表。
    * 失败时保留已有数据，并单独展示错误，避免误显示为空知识库。
    */
-  const loadDocuments = useCallback(async (
-    signal?: AbortSignal,
-    resetPage = true,
-  ) => {
+  const loadDocuments = useCallback(async (signal?: AbortSignal, resetPage = true) => {
     setListLoading(true)
     setListError('')
 
@@ -167,7 +140,6 @@ export default function Repository() {
 
   /** 完成前端校验后上传；后端仍负责最终校验和权限检查。 */
 
-
   /** 确认删除后刷新列表；删除失败时保留弹窗，允许重试。 */
   async function handleDelete(): Promise<void> {
     if (!deleteTarget || deleting || indexControllerRef.current) {
@@ -194,13 +166,11 @@ export default function Repository() {
     }
   }
 
-
   /** 当前正在建立索引的文献，同一页面一次处理一份。 */
   const [indexingId, setIndexingId] = useState<number | null>(null)
 
   /** 最近一次成功请求的结果，不代表持久化的索引状态。 */
-  const [indexResult, setIndexResult] =
-    useState<DocumentIndexResult | null>(null)
+  const [indexResult, setIndexResult] = useState<DocumentIndexResult | null>(null)
 
   const [indexError, setIndexError] = useState('')
 
@@ -217,15 +187,8 @@ export default function Repository() {
    * 请求失败或超时可能发生在部分写入之后，因此不自动重试。
    * 页面卸载后取消浏览器等待，避免继续更新已卸载组件。
    */
-  async function handleBuildIndex(
-    document: DocumentItem,
-  ): Promise<void> {
-    if (
-      listLoading ||
-      uploading ||
-      deleting ||
-      indexControllerRef.current
-    ) {
+  async function handleBuildIndex(document: DocumentItem): Promise<void> {
+    if (listLoading || uploading || deleting || indexControllerRef.current) {
       return
     }
 
@@ -255,9 +218,7 @@ export default function Repository() {
         return
       }
 
-      setIndexError(
-        getErrorMessage(error, '索引请求失败或等待超时'),
-      )
+      setIndexError(getErrorMessage(error, '索引请求失败或等待超时'))
     } finally {
       try {
         if (!controller.signal.aborted) {
@@ -283,18 +244,14 @@ export default function Repository() {
       extra={
         <Space>
           <Button
-            disabled={
-              listLoading || uploading || deleting || indexingId !== null
-            }
+            disabled={listLoading || uploading || deleting || indexingId !== null}
             onClick={() => void loadDocuments()}
           >
             刷新
           </Button>
 
           <BatchUpload
-            disabled={
-              listLoading || uploading || deleting || indexingId !== null
-            }
+            disabled={listLoading || uploading || deleting || indexingId !== null}
             onBusyChange={setUploading}
             onFinished={() => loadDocuments()}
           />
@@ -305,20 +262,14 @@ export default function Repository() {
 
       <p>支持 PDF、DOCX、TXT，单份文件不超过 20 MiB。</p>
       <p>
-        上传后请建立索引，再进行检索和问答；重复建立索引会重新调用向量服务。
+        上传成功后会自动完成解析、分块和索引建立；处理完成即可检索和问答。手动建立或重建索引会再次调用向量服务。
       </p>
       <p>
-        状态表示最近一次索引任务结果；失败时可悬停查看错误摘要，
-        最近成功记录会独立保留。
+        状态表示最近一次索引任务结果；失败时可悬停查看错误摘要， 最近成功记录会独立保留。
       </p>
 
       {listError && (
-        <Alert
-          type="error"
-          showIcon
-          message={listError}
-          style={{ marginBottom: 16 }}
-        />
+        <Alert type="error" showIcon message={listError} style={{ marginBottom: 16 }} />
       )}
       {indexingId !== null && (
         <Alert
@@ -377,11 +328,8 @@ export default function Repository() {
             key: 'rowNumber',
             width: 90,
             // 跨页连续计数；每页条数与下方分页配置保持一致。
-            render: (
-              _value: unknown,
-              _record: DocumentItem,
-              index: number,
-            ) => (currentPage - 1) * 10 + index + 1,
+            render: (_value: unknown, _record: DocumentItem, index: number) =>
+              (currentPage - 1) * 10 + index + 1,
           },
           ...columns,
           {
@@ -392,12 +340,7 @@ export default function Repository() {
               <Button
                 type="link"
                 loading={indexingId === record.id}
-                disabled={
-                  listLoading ||
-                  uploading ||
-                  deleting ||
-                  indexingId !== null
-                }
+                disabled={listLoading || uploading || deleting || indexingId !== null}
                 onClick={() => void handleBuildIndex(record)}
               >
                 建立索引
@@ -412,9 +355,7 @@ export default function Repository() {
               <Space size="small">
                 <Button
                   type="link"
-                  disabled={
-                    listLoading || uploading || deleting || indexingId !== null
-                  }
+                  disabled={listLoading || uploading || deleting || indexingId !== null}
                   onClick={() => setPreviewTarget(record)}
                 >
                   解析预览
@@ -422,9 +363,7 @@ export default function Repository() {
 
                 <Button
                   type="link"
-                  disabled={
-                    listLoading || uploading || deleting || indexingId !== null
-                  }
+                  disabled={listLoading || uploading || deleting || indexingId !== null}
                   onClick={() => setChunkTarget(record)}
                 >
                   分块预览
@@ -433,9 +372,7 @@ export default function Repository() {
                 <Button
                   danger
                   type="link"
-                  disabled={
-                    listLoading || uploading || deleting || indexingId !== null
-                  }
+                  disabled={listLoading || uploading || deleting || indexingId !== null}
                   onClick={() => setDeleteTarget(record)}
                 >
                   删除
@@ -476,9 +413,7 @@ export default function Repository() {
           }
         }}
       >
-        <p>
-          确定删除“{deleteTarget?.file_name}”吗？确认后将删除文献记录和原文件。
-        </p>
+        <p>确定删除“{deleteTarget?.file_name}”吗？确认后将删除文献记录和原文件。</p>
       </Modal>
       {previewTarget && (
         <DocumentPreview
