@@ -1,11 +1,10 @@
 /** 提供会话创建、分页列表和选择入口。 */
-import { Alert, Button, Card, Empty, Input, Pagination, Space } from 'antd'
+import { Alert, Button, Empty, Input, Pagination, Spin } from 'antd'
 import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { createSession, listSessions } from '../../../api/session'
 import type { ChatSession } from '../../../api/session'
 import SessionActions from './session-actions'
-
 
 interface SessionPanelProps {
   activeId?: string
@@ -105,92 +104,102 @@ export default function SessionPanel({
   }
 
   return (
-    <Card
-      title="我的会话"
-      loading={loading}
-      extra={
+    <section className="session-panel">
+      <div className="session-heading">
+        <span>研究会话</span>
         <Button
+          type="text"
+          size="small"
           disabled={disabled || loading}
           onClick={() => setRefreshToken((value) => value + 1)}
         >
-          刷新列表
+          刷新
         </Button>
-      }
-    >
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Space wrap>
-          <Input
-            value={name}
-            maxLength={255}
-            disabled={disabled}
-            placeholder="名称留空时，首条问答后自动生成标题"
-            style={{ width: 280 }}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <Button
-            type="primary"
-            loading={creating}
-            disabled={disabled}
-            onClick={() => void handleCreate()}
-          >
-            新建会话
-          </Button>
-        </Space>
-
-        {error && <Alert type="error" showIcon message={error} />}
-
-        {sessions.map((session) => (
-          <div
-            key={session.session_id}
-            style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}
-          >
-            <Button
-              type={activeId === session.session_id ? 'primary' : 'default'}
-              disabled={disabled}
-              onClick={() => onSelect(session)}
-              style={{
-                flex: 1,
-                minWidth: 160,
-                height: 'auto',
-                whiteSpace: 'normal',
-              }}
-            >
-              {session.session_name}
-            </Button>
-
-            <SessionActions
-              session={session}
-              disabled={disabled}
-              onBusyChange={onBusyChange}
-              onRenamed={(updated) => {
-                setPage(1)
-                setRefreshToken((value) => value + 1)
-                onRenamed(updated)
-              }}
-              onDeleted={(sessionId) => {
-                // 删除当前页最后一项时也回到第一页，避免停留在空页。
-                setPage(1)
-                setRefreshToken((value) => value + 1)
-                onDeleted(sessionId)
-              }}
-            />
-          </div>
-        ))}
-
-        {!error && sessions.length === 0 && (
-          <Empty description="暂无会话，请先新建" />
-        )}
-
-        <Pagination
-          current={page}
-          pageSize={8}
-          total={total}
+      </div>
+      <div className="session-create">
+        <Button
+          type="primary"
+          block
+          loading={creating}
           disabled={disabled}
-          showSizeChanger={false}
-          hideOnSinglePage
-          onChange={setPage}
+          onClick={() => void handleCreate()}
+        >
+          <span aria-hidden="true">＋</span> 新建会话
+        </Button>
+        <Input
+          value={name}
+          maxLength={255}
+          disabled={disabled || creating}
+          placeholder="会话名称（可留空）"
+          aria-label="新会话名称"
+          onChange={(event) => setName(event.target.value)}
+          onPressEnter={() => void handleCreate()}
         />
-      </Space>
-    </Card>
+      </div>
+      <div className="session-list-heading">
+        最近会话 <span>{total}</span>
+      </div>
+      {error && <Alert type="error" showIcon message={error} />}
+      <Spin spinning={loading}>
+        <div className="session-list">
+          {sessions.map((session) => (
+            <div
+              key={session.session_id}
+              className={`session-row${activeId === session.session_id ? ' is-active' : ''}`}
+            >
+              <button
+                type="button"
+                className="session-select"
+                disabled={disabled}
+                aria-current={activeId === session.session_id ? 'true' : undefined}
+                onClick={() => onSelect(session)}
+                title={session.session_name}
+              >
+                <span className="session-row-icon" aria-hidden="true">
+                  ▤
+                </span>
+                <span className="session-row-name">{session.session_name}</span>
+              </button>
+              <SessionActions
+                session={session}
+                disabled={disabled}
+                onBusyChange={onBusyChange}
+                onRenamed={(updated) => {
+                  setPage(1)
+                  setRefreshToken((value) => value + 1)
+                  onRenamed(updated)
+                }}
+                onDeleted={(sessionId) => {
+                  // 删除当前页最后一项后回到第一页，避免停留在空页。
+                  setPage(1)
+                  setRefreshToken((value) => value + 1)
+                  onDeleted(sessionId)
+                }}
+              />
+            </div>
+          ))}
+          {!loading && !error && sessions.length === 0 && (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="从新建会话开始研究"
+            />
+          )}
+        </div>
+      </Spin>
+      <Pagination
+        size="small"
+        current={page}
+        pageSize={8}
+        total={total}
+        disabled={disabled}
+        showSizeChanger={false}
+        hideOnSinglePage
+        onChange={setPage}
+      />
+      <div className="session-footnote">
+        <span className="session-status-dot" />
+        你的文献，你的研究空间
+      </div>
+    </section>
   )
 }

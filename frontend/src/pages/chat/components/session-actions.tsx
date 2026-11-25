@@ -3,7 +3,7 @@
  *
  * 删除必须确认；请求期间禁止重复提交及关闭操作弹窗。
  */
-import { Alert, Button, Input, Modal, Space } from 'antd'
+import { Alert, Button, Dropdown, Input, Modal } from 'antd'
 import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { deleteSession, renameSession } from '../../../api/session'
@@ -110,29 +110,35 @@ export default function SessionActions({
 
   return (
     <>
-      <Space size="small">
-        <Button
-          disabled={disabled}
-          onClick={() => {
-            setName(session.session_name)
+      {/* 将次要操作收进菜单，保留原有确认弹窗及请求保护。 */}
+      <Dropdown
+        trigger={['click']}
+        disabled={disabled}
+        menu={{
+          items: [
+            { key: 'rename', label: '重命名' },
+            { key: 'delete', label: '删除会话', danger: true },
+          ],
+          onClick: ({ key }) => {
             setError('')
-            setMode('rename')
-          }}
-        >
-          重命名
-        </Button>
-
+            if (key === 'rename') {
+              setName(session.session_name)
+              setMode('rename')
+            } else if (key === 'delete') {
+              setMode('delete')
+            }
+          },
+        }}
+      >
         <Button
-          danger
+          className="session-more"
+          type="text"
           disabled={disabled}
-          onClick={() => {
-            setError('')
-            setMode('delete')
-          }}
+          aria-label={`管理会话：${session.session_name}`}
         >
-          删除
+          ···
         </Button>
-      </Space>
+      </Dropdown>
 
       <Modal
         title={mode === 'rename' ? '重命名会话' : '删除会话'}
@@ -166,12 +172,7 @@ export default function SessionActions({
         )}
 
         {error && (
-          <Alert
-            type="error"
-            showIcon
-            message={error}
-            style={{ marginTop: 16 }}
-          />
+          <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} />
         )}
       </Modal>
     </>

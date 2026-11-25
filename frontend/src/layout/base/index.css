@@ -1,0 +1,125 @@
+/* 全局导航与内容区共用间距；聊天页单独占满剩余视口。 */
+.citemind-shell.ant-layout {
+  min-height: 100vh;
+  background: #f5f7f8;
+  color: #243344;
+}
+.citemind-header.ant-layout-header {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 72px;
+  padding: 0 32px;
+  line-height: normal;
+  background: #fff;
+  border-bottom: 1px solid #e7ecef;
+}
+.citemind-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: #172f3c;
+  text-decoration: none;
+}
+.citemind-brand:hover {
+  color: #172f3c;
+}
+.citemind-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 36px;
+  border-radius: 11px;
+  background: #173e43;
+  color: white;
+  font:
+    700 24px Georgia,
+    serif;
+}
+.citemind-brand strong {
+  font-size: 21px;
+  letter-spacing: -0.7px;
+}
+.citemind-brand-caption {
+  margin-left: 10px;
+  padding-left: 18px;
+  border-left: 1px solid #dfe6e8;
+  color: #859096;
+  font-size: 12px;
+  font-weight: 400;
+}
+.citemind-navigation {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  gap: 8px;
+  margin: auto;
+}
+.citemind-navigation a {
+  padding: 10px 18px;
+  border-radius: 8px;
+  color: #6b7780;
+  font-size: 14px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  white-space: nowrap;
+}
+.citemind-navigation a:hover {
+  background: #f4f7f7;
+  color: #225f62;
+}
+.citemind-navigation a.active {
+  color: #225f62;
+  background: #edf5f3;
+  font-weight: 600;
+}
+.citemind-logout.ant-btn {
+  color: #7b858c;
+  font-size: 13px;
+}
+.citemind-content.ant-layout-content {
+  padding: 24px;
+}
+.citemind-shell.is-chat .citemind-content {
+  padding: 0;
+}
+@media (max-width: 1100px) {
+  .citemind-brand-caption {
+    display: none;
+  }
+  .citemind-header.ant-layout-header {
+    gap: 16px;
+    padding: 0 20px;
+  }
+}
+@media (max-width: 640px) {
+  .citemind-header.ant-layout-header {
+    height: auto;
+    min-height: 104px;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .citemind-brand {
+    order: 0;
+  }
+  .citemind-logout {
+    order: 1;
+    margin-left: auto;
+  }
+  .citemind-navigation {
+    order: 2;
+    width: 100%;
+    justify-content: space-between;
+    gap: 0;
+  }
+  .citemind-navigation a {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .citemind-content.ant-layout-content {
+    padding: 12px;
+  }
+}

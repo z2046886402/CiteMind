@@ -4,7 +4,7 @@
  * 默认打开最新一页，页内按消息序号升序显示。
  * 切换会话或离开页面时取消旧查询。
  */
-import { Alert, Button, Card, Empty, Pagination, Space, Spin } from 'antd'
+import { Alert, Button, Pagination, Spin } from 'antd'
 import axios from 'axios'
 import { useEffect, useState } from 'react'
 import { getMessages } from '../../../api/session'
@@ -48,28 +48,16 @@ export default function MessageHistory({
       setResult(null)
 
       try {
-        const firstPage = await getMessages(
-          sessionId,
-          1,
-          PAGE_SIZE,
-          controller.signal,
-        )
+        const firstPage = await getMessages(sessionId, 1, PAGE_SIZE, controller.signal)
 
         const lastPage = Math.max(1, Math.ceil(firstPage.total / PAGE_SIZE))
         const targetPage =
-          requestedPage === 0
-            ? lastPage
-            : Math.min(requestedPage, lastPage)
+          requestedPage === 0 ? lastPage : Math.min(requestedPage, lastPage)
 
         const data =
           targetPage === 1
             ? firstPage
-            : await getMessages(
-              sessionId,
-              targetPage,
-              PAGE_SIZE,
-              controller.signal,
-            )
+            : await getMessages(sessionId, targetPage, PAGE_SIZE, controller.signal)
 
         if (!controller.signal.aborted) {
           setResult(data)
@@ -91,37 +79,51 @@ export default function MessageHistory({
   }, [sessionId, requestedPage, refreshToken, onLoaded])
 
   return (
-    <Card
-      title="会话历史"
-      extra={
+    <section className="chat-history" aria-label="会话消息">
+      <div className="chat-history-toolbar">
+        <span>文献问答</span>
         <Button
+          type="text"
+          size="small"
           disabled={loading}
           onClick={() => setRefreshToken((value) => value + 1)}
         >
           刷新历史
         </Button>
-      }
-    >
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        {loading && <Spin />}
-
-        {error && <Alert type="error" showIcon message={error} />}
-
-        {result?.messages.length === 0 && (
-          <Empty description="会话中还没有问答，可以开始提问" />
-        )}
-
-        {result?.messages.map((item) => (
-          <Card
-            key={item.message_id}
-            size="small"
-            title={`第 ${item.message_no} 次问答`}
-            extra={
-              <ExportAnswerButton result={item} />
-            }
-          >
-            <p><strong>问题：</strong>{item.question}</p>
-
+      </div>
+      {loading && (
+        <div className="chat-history-loading">
+          <Spin />
+        </div>
+      )}
+      {error && <Alert type="error" showIcon message={error} />}
+      {result?.messages.length === 0 && (
+        <div className="chat-empty-conversation">
+          <span className="chat-welcome-mark" aria-hidden="true">
+            C.
+          </span>
+          <h2>有什么想从文献中了解的？</h2>
+          <p>在下方输入问题，开始这一次研究。</p>
+        </div>
+      )}
+      {result?.messages.map((item) => (
+        <article
+          key={item.message_id}
+          className="chat-exchange"
+          aria-label={`第 ${item.message_no} 次问答`}
+        >
+          <div className="chat-question-bubble">{item.question}</div>
+          <div className="chat-answer-heading">
+            <span className="chat-assistant-mark" aria-hidden="true">
+              C.
+            </span>
+            <strong>CiteMind</strong>
+            <span className="chat-answer-time">
+              {new Date(item.created_at).toLocaleString()}
+            </span>
+            <ExportAnswerButton result={item} />
+          </div>
+          <div className="chat-answer-body">
             {item.status === 'generated' ? (
               <CitedAnswer
                 answer={item.answer}
@@ -129,11 +131,7 @@ export default function MessageHistory({
                 onReadReference={onReadReference}
               />
             ) : (
-              <Alert
-                type="warning"
-                showIcon
-                message={item.answer}
-              />
+              <Alert type="warning" showIcon message={item.answer} />
             )}
             {item.status === 'generated' && (
               <RecommendedQuestions
@@ -150,23 +148,19 @@ export default function MessageHistory({
                 style={{ marginTop: 12 }}
               />
             ))}
-
-            <p style={{ color: '#666', marginBottom: 0 }}>
-              保存时间：{new Date(item.created_at).toLocaleString()}
-            </p>
-          </Card>
-        ))}
-
-        {result && result.total > 0 && (
-          <Pagination
-            current={result.page}
-            pageSize={PAGE_SIZE}
-            total={result.total}
-            showSizeChanger={false}
-            onChange={setRequestedPage}
-          />
-        )}
-      </Space>
-    </Card>
+          </div>
+        </article>
+      ))}
+      {result && result.total > PAGE_SIZE && (
+        <Pagination
+          size="small"
+          current={result.page}
+          pageSize={PAGE_SIZE}
+          total={result.total}
+          showSizeChanger={false}
+          onChange={setRequestedPage}
+        />
+      )}
+    </section>
   )
 }
