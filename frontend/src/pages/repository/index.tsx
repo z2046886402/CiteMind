@@ -11,17 +11,15 @@ import {
   Table,
   Tag,
   Tooltip,
-  Upload,
   message,
 } from 'antd'
-import type { TableColumnsType, UploadProps } from 'antd'
+import type { TableColumnsType } from 'antd'
 import axios from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   buildDocumentIndex,
   deleteDocument,
   listDocuments,
-  uploadDocument,
 } from '../../api/repository'
 import type {
   DocumentItem,
@@ -29,10 +27,7 @@ import type {
   DocumentIndexStatus,
 } from '../../api/repository'
 import ChunkPreview from './components/chunk-preview'
-
-const MAX_FILE_SIZE = 20 * 1024 * 1024
-const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'txt']
-
+import BatchUpload from './components/batch-upload'
 
 /** 将接口时间转换为本机时间，避免直接显示 ISO 字符串。 */
 function formatTime(value: string): string {
@@ -171,42 +166,7 @@ export default function Repository() {
   }, [loadDocuments])
 
   /** 完成前端校验后上传；后端仍负责最终校验和权限检查。 */
-  async function handleUpload(file: File): Promise<void> {
-    const extension = file.name.split('.').pop()?.toLowerCase() || ''
-    if (indexControllerRef.current) {
-      return
-    }
-    if (!ALLOWED_EXTENSIONS.includes(extension)) {
-      messageApi.error('仅支持 PDF、DOCX、TXT 文件')
-      return
-    }
 
-    if (file.size === 0 || file.size > MAX_FILE_SIZE) {
-      messageApi.error('文件不能为空，且大小不能超过 20 MiB')
-      return
-    }
-
-    setUploading(true)
-
-    try {
-      await uploadDocument(file)
-      messageApi.success('上传成功')
-
-      // 列表刷新失败由 loadDocuments 单独提示，避免误报上传失败。
-      await loadDocuments()
-    } catch (error) {
-      messageApi.error(getErrorMessage(error, '上传失败，请稍后重试'))
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const beforeUpload: UploadProps['beforeUpload'] = (file) => {
-    void handleUpload(file)
-
-    // 禁止 Upload 自行发送请求，统一使用封装好的 Axios 接口。
-    return false
-  }
 
   /** 确认删除后刷新列表；删除失败时保留弹窗，允许重试。 */
   async function handleDelete(): Promise<void> {
@@ -331,21 +291,13 @@ export default function Repository() {
             刷新
           </Button>
 
-          <Upload
-            accept=".pdf,.docx,.txt"
-            multiple={false}
-            showUploadList={false}
-            disabled={listLoading || uploading || indexingId !== null}
-            beforeUpload={beforeUpload}
-          >
-            <Button
-              type="primary"
-              loading={uploading}
-              disabled={listLoading || uploading || indexingId !== null}
-            >
-              上传文献
-            </Button>
-          </Upload>
+          <BatchUpload
+            disabled={
+              listLoading || uploading || deleting || indexingId !== null
+            }
+            onBusyChange={setUploading}
+            onFinished={() => loadDocuments()}
+          />
         </Space>
       }
     >

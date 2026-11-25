@@ -57,16 +57,20 @@ export async function listDocuments(signal?: AbortSignal) {
 /**
  * 上传一份文献。
  * @param file 用户选择的本机文件。
+ * @param signal 页面卸载时取消客户端等待。
  */
-export async function uploadDocument(file: File) {
+export async function uploadDocument(
+  file: File,
+  signal?: AbortSignal,
+) {
   const form = new FormData()
   form.append('files', file)
 
-  // 不手动设置 Content-Type，由浏览器补齐 multipart boundary。
+  // 由浏览器生成 multipart boundary，不手动指定 Content-Type。
   const response = await request.post<UploadResponse>(
     '/upload_files',
     form,
-    { timeout: 60000 },
+    { timeout: 60000, signal },
   )
 
   return response.data
