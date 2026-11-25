@@ -1,0 +1,116 @@
+/* 样式限定在回答容器内，避免影响页面其他表格和按钮。 */
+.citemind-markdown {
+  min-width: 0;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.citemind-markdown > :first-child {
+  margin-top: 0;
+}
+
+.citemind-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.citemind-markdown p {
+  margin: 0 0 12px;
+}
+
+.citemind-markdown h1,
+.citemind-markdown h2,
+.citemind-markdown h3,
+.citemind-markdown h4,
+.citemind-markdown h5,
+.citemind-markdown h6 {
+  margin: 20px 0 10px;
+  line-height: 1.5;
+}
+
+.citemind-markdown h1 {
+  font-size: 1.6em;
+}
+
+.citemind-markdown h2 {
+  font-size: 1.35em;
+}
+
+.citemind-markdown h3 {
+  font-size: 1.15em;
+}
+
+.citemind-markdown ul,
+.citemind-markdown ol {
+  margin: 0 0 12px;
+  padding-left: 26px;
+}
+
+.citemind-markdown li {
+  margin-bottom: 4px;
+}
+
+.citemind-markdown blockquote {
+  margin: 12px 0;
+  padding: 8px 16px;
+  color: #666;
+  background: #fafafa;
+  border-left: 4px solid #d9d9d9;
+}
+
+.citemind-markdown code {
+  padding: 2px 5px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  font-family: Consolas, monospace;
+}
+
+.citemind-markdown pre {
+  max-width: 100%;
+  margin: 12px 0;
+  padding: 16px;
+  overflow-x: auto;
+  background: #f5f5f5;
+  border-radius: 6px;
+  white-space: pre;
+}
+
+.citemind-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.citemind-markdown-table {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
+}
+
+.citemind-markdown table {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+}
+
+.citemind-markdown th,
+.citemind-markdown td {
+  min-width: 100px;
+  padding: 8px 12px;
+  border: 1px solid #e5e5e5;
+  vertical-align: top;
+}
+
+.citemind-markdown th {
+  background: #fafafa;
+}
+
+.citemind-markdown hr {
+  margin: 20px 0;
+  border: 0;
+  border-top: 1px solid #e5e5e5;
+}
+
+.citemind-markdown .citemind-citation {
+  height: auto;
+  padding: 0 3px;
+  vertical-align: baseline;
+}
