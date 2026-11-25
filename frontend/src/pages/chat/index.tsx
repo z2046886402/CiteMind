@@ -490,6 +490,7 @@ export default function ChatPage() {
 
         <ChatComposer
           form={questionForm}
+          conversationKey={activeSession?.session_id ?? 'new-conversation'}
           disabled={workspaceBusy}
           loading={loading}
           onSubmit={handleAsk}
