@@ -32,6 +32,11 @@ import RerankSelect from '../../components/rerank-select'
 import ReferencePreview from './components/reference-preview'
 import ExportAnswerButton from './components/export-answer-button'
 import RecommendedQuestions from './components/recommended-questions'
+import {
+  getChatNotice,
+  stoppedChatNotice,
+} from '../../utils/chat-notice'
+import type { ChatNotice } from '../../utils/chat-notice'
 interface QuestionFormValues {
   question: string
 
@@ -46,9 +51,10 @@ export default function ChatPage() {
 
   /** 后端当前处理阶段，例如检索、生成和保存。 */
   const [streamStatus, setStreamStatus] = useState('')
-  const [error, setError] = useState('')
-  /** 主动停止后的提示，与请求失败信息分开展示。 */
-  const [stopNotice, setStopNotice] = useState('')
+  /** 统一展示失败、结果待确认和主动停止提示。 */
+  const [notice, setNotice] = useState<ChatNotice | null>(
+    null,
+  )
   const [result, setResult] = useState<DocumentChatResult | null>(null)
   const [selectedReference, setSelectedReference] =
     useState<AnswerReference | null>(null)
@@ -90,8 +96,7 @@ export default function ChatPage() {
     controllerRef.current = controller
 
     setLoading(true)
-    setError('')
-    setStopNotice('')
+    setNotice(null)
     setResult(null)
     setSelectedReference(null)
     setStreamText('')
@@ -158,25 +163,28 @@ export default function ChatPage() {
         return
       }
 
-      const description =
-        error instanceof Error
-          ? error.message
-          : '流式问答处理失败'
+      const nextNotice = getChatNotice(error)
 
-      setError(
-        `${description}。请先核对会话历史，再决定是否重试。`,
-      )
-
-      // 未确认成功的文本不能继续作为正式回答展示。
+      setNotice(nextNotice)
       setStreamText('')
       setStreamStatus('')
 
-      // 后端可能已提交消息，但完成通知未能到达浏览器。
-      setHistoryRevision((value) => value + 1)
-      setSessionRevision((value) => value + 1)
+      if (nextNotice.clearSession) {
+        // 只清除本次请求对应的会话，避免影响其他会话。
+        setActiveSession((current) =>
+          current?.session_id === sessionId
+            ? null
+            : current,
+        )
+
+        setSessionRevision((value) => value + 1)
+      } else if (nextNotice.checkHistory) {
+        // 保存结果不明确时查询历史，不自动重新发送问题。
+        setHistoryRevision((value) => value + 1)
+        setSessionRevision((value) => value + 1)
+      }
     } finally {
-      // 只有仍占用当前引用的请求，才能清理页面请求状态。
-      // 用户停止后可能已经发起新请求，旧请求不得覆盖新状态。
+      // 旧请求不能清理用户后来发起的新请求状态。
       if (controllerRef.current === controller) {
         controllerRef.current = null
 
@@ -195,6 +203,10 @@ export default function ChatPage() {
  *
  * 浏览器取消不保证后端立即停止；历史刷新仅反映查询时的状态。
  */
+  /**
+   * 停止接收当前响应，并查询已有历史。
+   * 不将主动停止当作请求失败，也不承诺后端立即终止。
+   */
   function handleStopAnswer(): void {
     const controller = controllerRef.current
 
@@ -210,13 +222,9 @@ export default function ChatPage() {
     setStreamStatus('')
     setResult(null)
     setSelectedReference(null)
-    setError('')
 
-    setStopNotice(
-      '已停止接收回答。请核对会话历史；如果后端仍在处理，可稍后再次刷新历史。',
-    )
+    setNotice(stoppedChatNotice())
 
-    // 回答可能已保存，但浏览器尚未收到完成通知。
     setHistoryRevision((value) => value + 1)
     setSessionRevision((value) => value + 1)
   }
@@ -250,8 +258,7 @@ export default function ChatPage() {
     setResult(null)
     setStreamText('')
     setStreamStatus('')
-    setError('')
-    setStopNotice('')
+    setNotice(null)
     setSelectedReference(null)
     questionForm.resetFields()
   }
@@ -288,8 +295,7 @@ export default function ChatPage() {
     setResult(null)
     setStreamText('')
     setStreamStatus('')
-    setError('')
-    setStopNotice('')
+    setNotice(null)
     setSelectedReference(null)
     questionForm.resetFields()
   }
@@ -381,7 +387,7 @@ export default function ChatPage() {
               htmlType="button"
               onClick={handleStopAnswer}
             >
-              停止回答
+              停止接收
             </Button>
           }
         >
@@ -415,15 +421,33 @@ export default function ChatPage() {
         </Card>
       )}
 
-      {stopNotice && (
+      {notice && (
         <Alert
-          type="info"
+          type={notice.type}
           showIcon
-          message="已停止接收"
-          description={stopNotice}
+          message={notice.title}
+          description={notice.description}
+          action={
+            notice.checkHistory && activeSession ? (
+              <Button
+                htmlType="button"
+                size="small"
+                disabled={loading || workspaceBusy}
+                onClick={() => {
+                  setHistoryRevision(
+                    (value) => value + 1,
+                  )
+                  setSessionRevision(
+                    (value) => value + 1,
+                  )
+                }}
+              >
+                刷新会话历史
+              </Button>
+            ) : undefined
+          }
         />
       )}
-      {error && <Alert type="error" showIcon message={error} />}
 
       {result && (
         <>

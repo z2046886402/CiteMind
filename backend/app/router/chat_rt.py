@@ -164,15 +164,25 @@ def chat_on_docs_stream(
             yield encode_event(
                 "error",
                 {
+                    "code": (
+                        "SAVE_UNCONFIRMED"
+                        if isinstance(
+                            exc,
+                            MessagePersistenceError,
+                        )
+                        else "ANSWER_FAILED"
+                    ),
                     "message": str(exc),
-                    "action": "请核对会话历史，临时文本不作为成功回答",
                 },
             )
 
         except SessionNotFoundError:
             yield encode_event(
                 "error",
-                {"message": "会话已不存在，回答未保存"},
+                {
+                    "code": "SESSION_NOT_FOUND",
+                    "message": "会话已不存在",
+                },
             )
 
         except Exception as exc:
@@ -185,7 +195,8 @@ def chat_on_docs_stream(
             yield encode_event(
                 "error",
                 {
-                    "message": "问答处理未完成，请核对会话历史后再决定是否重试",
+                    "code": "PROCESSING_FAILED",
+                    "message": "问答处理未完成",
                 },
             )
 

@@ -3,7 +3,7 @@ import { request } from './request'
 import { userActions, userState } from '../store/user'
 import type { DocumentChatResult } from './chat'
 import type { SemanticSearchParams } from './search'
-
+import { ChatStreamError } from '../utils/chat-notice'
 interface StreamHandlers {
   onStatus: (message: string) => void
   onDelta: (content: string) => void
@@ -73,12 +73,22 @@ export async function askDocumentsStream(
       const body: unknown = await response.json().catch(() => null)
       const detail = body && typeof body === 'object' && 'detail' in body
         ? body.detail : undefined
-      throw new Error(typeof detail === 'string'
-        ? detail : `问答请求失败（HTTP ${response.status}）`)
+      throw new ChatStreamError(
+        'http',
+        typeof detail === 'string'
+          ? detail
+          : `问答请求失败（HTTP ${response.status}）`,
+        {
+          httpStatus: response.status,
+        },
+      )
     }
     if (!response.headers.get('content-type')?.includes('text/event-stream')
       || !response.body) {
-      throw new Error('服务器未返回有效的事件流')
+      throw new ChatStreamError(
+        'protocol',
+        '服务器未返回有效的事件流',
+      )
     }
 
     reader = response.body.getReader()
@@ -88,8 +98,19 @@ export async function askDocumentsStream(
     while (true) {
       const chunk = await reader.read()
       // 流式解码会保留跨网络分包的 UTF-8 字节，防止中文乱码。
-      buffer += chunk.done ? decoder.decode()
-        : decoder.decode(chunk.value, { stream: true })
+      try {
+        buffer += chunk.done
+          ? decoder.decode()
+          : decoder.decode(
+              chunk.value,
+              { stream: true },
+            )
+      } catch {
+        throw new ChatStreamError(
+          'protocol',
+          '响应文本编码无效',
+        )
+      }
       let boundary = /\r?\n\r?\n/.exec(buffer)
       while (boundary) {
         const block = buffer.slice(0, boundary.index)
@@ -102,8 +123,18 @@ export async function askDocumentsStream(
           } else if (name === 'delta' && typeof data.content === 'string') {
             handlers.onDelta(data.content)
           } else if (name === 'error') {
-            throw new Error(typeof data.message === 'string'
-              ? data.message : '回答处理失败')
+            throw new ChatStreamError(
+              'server',
+              typeof data.message === 'string'
+                ? data.message
+                : '回答处理失败',
+              {
+                serverCode:
+                  typeof data.code === 'string'
+                    ? data.code
+                    : undefined,
+              },
+            )
           } else if (name === 'done') {
             // 检查成功事件的必要字段；最终正文覆盖临时拼接内容。
             if (data.session_id !== sessionId
@@ -152,10 +183,40 @@ export async function askDocumentsStream(
       }
       if (chunk.done) break
     }
-    throw new Error('连接已结束，但未收到保存成功通知')
+    throw new ChatStreamError(
+      'incomplete',
+      '连接已结束，但未收到保存成功通知',
+    )
   } catch (error) {
-    if (timedOut) throw new Error('回答等待超时，请先核对会话历史')
-    throw error
+    // 主动停止由页面处理，不转换为失败提示。
+    if (signal.aborted) {
+      throw error
+    }
+
+    if (timedOut) {
+      throw new ChatStreamError(
+        'timeout',
+        '回答等待超时',
+      )
+    }
+
+    if (error instanceof ChatStreamError) {
+      throw error
+    }
+
+    // fetch 和流读取的网络异常通常表现为 TypeError。
+    if (error instanceof TypeError) {
+      throw new ChatStreamError(
+        'network',
+        '问答连接中断',
+      )
+    }
+
+    // JSON 解析和原有响应结构校验错误统一归为协议异常。
+    throw new ChatStreamError(
+      'protocol',
+      '问答响应格式异常',
+    )
   } finally {
     window.clearTimeout(timer)
     signal.removeEventListener('abort', abort)
