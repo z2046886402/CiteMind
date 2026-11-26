@@ -18,7 +18,7 @@ from exceptions.embedding import EmbeddingServiceError
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-v3"
+EMBEDDING_MODEL = "qwen3.7-text-embedding-flash"
 EMBEDDING_DIMENSIONS = 1024
 EMBEDDING_BATCH_SIZE = 10
 
@@ -111,11 +111,27 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
                     len(batch),
                     EMBEDDING_DIMENSIONS,
                 )
-    except (AuthenticationError, PermissionDeniedError) as exc:
-        raise EmbeddingServiceError(
-            "向量服务认证或授权失败，请检查 API Key、地域和模型权限"
-        ) from exc
     except APIError as exc:
+        # 部分兼容服务会用 HTTP 403 返回额度限制；优先按业务错误码分类，
+        # 避免 SDK 将其映射为 PermissionDeniedError 后误报为密钥或地域问题。
+        error_code = getattr(exc, "code", None)
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            detail = body.get("error", body)
+            if isinstance(detail, dict):
+                error_code = detail.get("code") or error_code
+
+        if error_code == "insufficient_quota":
+            raise EmbeddingServiceError(
+                "向量服务返回额度限制，请检查服务平台的可用额度、余额及模型配额"
+                "（insufficient_quota）"
+            ) from exc
+
+        if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
+            raise EmbeddingServiceError(
+                "向量服务认证或授权失败，请检查 API Key、地域和模型权限"
+            ) from exc
+
         # 不记录远程响应正文，避免意外包含输入文本或凭证信息。
         logger.error(
             "向量服务请求失败，error_type=%s，status_code=%s",
